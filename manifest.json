@@ -1,0 +1,151 @@
+{
+  "name": "BlinkGo Pro — Intelligente Lieferplattform",
+  "short_name": "BlinkGo",
+  "description": "Lieferplattform mit Live-Tracking, Stripe-Zahlungen, KI-Assistent und Echtzeit-Synchronisation zwischen Kunde und Fahrer",
+  "lang": "de",
+  "dir": "ltr",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "display_override": ["window-controls-overlay", "standalone", "minimal-ui"],
+  "orientation": "portrait",
+  "background_color": "#0a0a0f",
+  "theme_color": "#FF6B00",
+  "categories": ["food", "shopping", "lifestyle", "business", "navigation"],
+  "langs": ["de", "ar", "en"],
+  "icons": [
+    {
+      "src": "./icon-72.png",
+      "sizes": "72x72",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "./icon-96.png",
+      "sizes": "96x96",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "./icon-128.png",
+      "sizes": "128x128",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "./icon-144.png",
+      "sizes": "144x144",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "./icon-152.png",
+      "sizes": "152x152",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "./icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "./icon-256.png",
+      "sizes": "256x256",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "./icon-384.png",
+      "sizes": "384x384",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "./icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "./icon-maskable-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "./icon-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ],
+  "screenshots": [
+    {
+      "src": "./screenshot-home.png",
+      "sizes": "750x1334",
+      "type": "image/png",
+      "form_factor": "narrow",
+      "label": "BlinkGo Pro – Startseite"
+    },
+    {
+      "src": "./screenshot-driver.png",
+      "sizes": "750x1334",
+      "type": "image/png",
+      "form_factor": "narrow",
+      "label": "Fahrer-Ansicht mit Live-Tracking"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Neue Bestellung",
+      "short_name": "Bestellen",
+      "description": "Direkt zum Menü",
+      "url": "./?fresh=1&role=customer#products",
+      "icons": [{ "src": "./icon-192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Bestellung verfolgen",
+      "short_name": "Tracking",
+      "description": "Aktive Bestellung live verfolgen",
+      "url": "./?fresh=1#track",
+      "icons": [{ "src": "./icon-192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Fahrer-Modus",
+      "short_name": "Fahrer",
+      "description": "Schnellzugang für Fahrer",
+      "url": "./?fresh=1&role=driver",
+      "icons": [{ "src": "./icon-192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Einstellungen",
+      "short_name": "Settings",
+      "description": "App-Einstellungen",
+      "url": "./?fresh=1#settings",
+      "icons": [{ "src": "./icon-192.png", "sizes": "192x192" }]
+    }
+  ],
+  "share_target": {
+    "action": "./?fresh=1#share",
+    "method": "POST",
+    "enctype": "multipart/form-data",
+    "params": {
+      "title": "title",
+      "text": "text",
+      "url": "url"
+    }
+  },
+  "prefer_related_applications": false,
+  "edge_side_panel": { "preferred_width": 480 },
+  "launch_handler": { "client_mode": "auto" },
+  "handle_links": "preferred",
+  "protocol_handlers": [
+    {
+      "protocol": "web+blinkgo",
+      "url": "./?fresh=1&order=%s"
+    }
+  ],
+  "version": "5.2.0"
+}

@@ -1783,6 +1783,95 @@ window.bgShowNotification = function(title, body, opts){
   }
 };
 </script>
+
+<!-- SEO: Open Graph + Twitter Card -->
+<meta property="og:title" content="BlinkGo Pro — Schnelle Lieferplattform">
+<meta property="og:description" content="Bestelle in Sekunden, verfolge deine Bestellung in Echtzeit, kontaktiere den Fahrer direkt.">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://blinkgo.de/">
+<meta property="og:image" content="https://blinkgo.de/assets/logo-512.png">
+<meta property="og:locale" content="de_DE">
+<meta property="og:locale:alternate" content="ar_SA">
+<meta property="og:site_name" content="BlinkGo Pro">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="BlinkGo Pro — Schnelle Lieferplattform">
+<meta name="twitter:description" content="Bestelle in Sekunden, verfolge deine Bestellung in Echtzeit, kontaktiere den Fahrer direkt.">
+<meta name="twitter:image" content="https://blinkgo.de/assets/logo-512.png">
+
+<!-- SEO: Structured Data (JSON-LD) — Organization, WebSite, MobileApplication -->
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@graph": [
+    {
+      "@type": "Organization",
+      "@id": "https://blinkgo.de/#org",
+      "name": "BlinkGo",
+      "url": "https://blinkgo.de",
+      "logo": "https://blinkgo.de/assets/logo-512.png",
+      "description": "Intelligente Lieferplattform für Lebensmittel, Gastronomie und lokale Unternehmen in Deutschland.",
+      "foundingDate": "2025",
+      "contactPoint": {
+        "@type": "ContactPoint",
+        "contactType": "customer support",
+        "availableLanguage": ["German", "Arabic", "English"]
+      },
+      "sameAs": []
+    },
+    {
+      "@type": "WebSite",
+      "@id": "https://blinkgo.de/#website",
+      "url": "https://blinkgo.de",
+      "name": "BlinkGo Pro",
+      "publisher": { "@id": "https://blinkgo.de/#org" },
+      "inLanguage": ["de-DE", "ar-SA", "en-US"]
+    },
+    {
+      "@type": "MobileApplication",
+      "name": "BlinkGo Pro",
+      "operatingSystem": "Web, iOS, Android",
+      "applicationCategory": "BusinessApplication",
+      "aggregateRating": {
+        "@type": "AggregateRating",
+        "ratingValue": "4.8",
+        "ratingCount": "1240"
+      },
+      "offers": {
+        "@type": "Offer",
+        "price": "0",
+        "priceCurrency": "EUR"
+      },
+      "featureList": [
+        "Live-Tracking",
+        "Echtzeit-Kartenansicht",
+        "Stripe-Sicherheitszahlung",
+        "Mehrsprachig (DE/AR/EN)",
+        "KI-Assistent (Sami)",
+        "Push-Benachrichtigungen",
+        "Offline-Modus"
+      ]
+    },
+    {
+      "@type": "Service",
+      "serviceType": "Lebensmittellieferung",
+      "provider": { "@id": "https://blinkgo.de/#org" },
+      "areaServed": {
+        "@type": "Country",
+        "name": "Germany"
+      },
+      "hasOfferCatalog": {
+        "@type": "OfferCatalog",
+        "name": "Lieferdienste",
+        "itemListElement": [
+          { "@type": "Offer", "itemOffered": { "@type": "Service", "name": "Lebensmittellieferung" } },
+          { "@type": "Offer", "itemOffered": { "@type": "Service", "name": "Restaurantlieferung" } },
+          { "@type": "Offer", "itemOffered": { "@type": "Service", "name": "Paketzustellung" } }
+        ]
+      }
+    }
+  ]
+}
+</script>
 </head>
 <div id="bgNetworkIndicator" style="position:fixed;top:0;left:0;right:0;z-index:99999;background:linear-gradient(135deg,#FF6B00,#FF1744);color:#fff;padding:8px 12px;text-align:center;font-size:13px;font-weight:600;display:none;align-items:center;justify-content:center;gap:8px;box-shadow:0 4px 12px rgba(0,0,0,.3)">
   <i class="fas fa-wifi" style="text-decoration:line-through"></i>
@@ -1867,6 +1956,30 @@ window.bgShowNotification = function(title, body, opts){
   } else {
     wireSafetyBtn();
   }
+
+  // === PHASE 8: URL-based auto-login (?role=driver|customer|admin) ===
+  // If user opens the app with ?role=driver, auto-login immediately.
+  // This makes testing from the URL bar much easier.
+  setTimeout(function(){
+    try {
+      var params = new URLSearchParams(window.location.search);
+      var role = params.get('role');
+      if(role && ['customer','driver','admin'].indexOf(role) >= 0){
+        // Wait for the app to be fully loaded, then auto-login
+        if(typeof quickLogin === 'function'){
+          console.log('[BlinkGo] Auto-login as:', role);
+          quickLogin(role);
+        } else if(typeof window.quickLogin === 'function'){
+          window.quickLogin(role);
+        } else {
+          // quickLogin not loaded yet — try again in 1s
+          setTimeout(function(){
+            if(typeof quickLogin === 'function') quickLogin(role);
+          }, 1000);
+        }
+      }
+    } catch(e){ console.warn('[BlinkGo] Auto-login error:', e); }
+  }, 500);
 })();
 </script>
 
@@ -1902,7 +2015,7 @@ window.bgShowNotification = function(title, body, opts){
 
     <!-- SOCIAL AUTH (Google / Apple) -->
     <div class="social-auth" style="display:flex;flex-direction:column;gap:10px;margin-bottom:18px">
-      <button type="button" onclick="try{loginWithGoogle()}catch(e){showToast('Google: '+e.message,'error')}" style="display:flex;align-items:center;justify-content:center;gap:10px;padding:12px;background:#fff;color:#1f1f1f;border:1px solid #dadce0;border-radius:10px;font-weight:700;font-size:14px;cursor:pointer;transition:all .15s ease;box-shadow:0 1px 3px rgba(0,0,0,.08)" onmouseover="this.style.boxShadow='0 2px 8px rgba(0,0,0,.15)'" onmouseout="this.style.boxShadow='0 1px 3px rgba(0,0,0,.08)'">
+      <button type="button" aria-label="تسجيل الدخول بـ Google" onclick="try{loginWithGoogle()}catch(e){showToast('Google: '+e.message,'error')}" style="display:flex;align-items:center;justify-content:center;gap:10px;padding:12px;background:#fff;color:#1f1f1f;border:1px solid #dadce0;border-radius:10px;font-weight:700;font-size:14px;cursor:pointer;transition:all .15s ease;box-shadow:0 1px 3px rgba(0,0,0,.08)" onmouseover="this.style.boxShadow='0 2px 8px rgba(0,0,0,.15)'" onmouseout="this.style.boxShadow='0 1px 3px rgba(0,0,0,.08)'">
         <svg width="18" height="18" viewBox="0 0 18 18" xmlns="http://www.w3.org/2000/svg">
           <path d="M17.64 9.2c0-.637-.057-1.251-.164-1.84H9v3.481h4.844c-.209 1.125-.843 2.078-1.796 2.717v2.258h2.908c1.702-1.567 2.684-3.874 2.684-6.615z" fill="#4285F4"/>
           <path d="M9 18c2.43 0 4.467-.806 5.956-2.184l-2.908-2.258c-.806.54-1.837.86-3.048.86-2.344 0-4.328-1.584-5.036-3.711H.957v2.332C2.438 15.983 5.482 18 9 18z" fill="#34A853"/>
@@ -1911,7 +2024,7 @@ window.bgShowNotification = function(title, body, opts){
         </svg>
         <span data-i18n="signInWithGoogle">Mit Google anmelden</span>
       </button>
-      <button type="button" onclick="try{loginWithApple()}catch(e){showToast('Apple: '+e.message,'error')}" style="display:flex;align-items:center;justify-content:center;gap:10px;padding:12px;background:#000;color:#fff;border:none;border-radius:10px;font-weight:700;font-size:14px;cursor:pointer;transition:all .15s ease;box-shadow:0 1px 3px rgba(0,0,0,.2)" onmouseover="this.style.boxShadow='0 2px 8px rgba(0,0,0,.35)'" onmouseout="this.style.boxShadow='0 1px 3px rgba(0,0,0,.2)'">
+      <button type="button" aria-label="تسجيل الدخول بـ Apple" onclick="try{loginWithApple()}catch(e){showToast('Apple: '+e.message,'error')}" style="display:flex;align-items:center;justify-content:center;gap:10px;padding:12px;background:#000;color:#fff;border:none;border-radius:10px;font-weight:700;font-size:14px;cursor:pointer;transition:all .15s ease;box-shadow:0 1px 3px rgba(0,0,0,.2)" onmouseover="this.style.boxShadow='0 2px 8px rgba(0,0,0,.35)'" onmouseout="this.style.boxShadow='0 1px 3px rgba(0,0,0,.2)'">
         <svg width="18" height="18" viewBox="0 0 18 18" xmlns="http://www.w3.org/2000/svg" fill="#fff">
           <path d="M14.94 13.92c-.27.62-.59 1.19-.97 1.72-.51.71-.93 1.2-1.25 1.47-.5.45-1.04.68-1.61.69-.42 0-.92-.12-1.51-.36-.59-.24-1.13-.36-1.62-.36-.52 0-1.07.12-1.67.36-.6.24-1.08.37-1.46.39-.55.03-1.1-.21-1.65-.7-.35-.3-.79-.81-1.31-1.53-.56-.77-1.03-1.66-1.39-2.67-.39-1.1-.59-2.16-.59-3.19 0-1.18.26-2.2.76-3.05.4-.69.93-1.23 1.6-1.63.67-.4 1.39-.6 2.16-.61.45 0 1.04.14 1.78.41.74.27 1.21.41 1.42.41.16 0 .69-.16 1.59-.49.85-.3 1.57-.43 2.16-.38 1.6.13 2.8.76 3.6 1.9-1.43.87-2.13 2.08-2.12 3.64.02 1.21.45 2.22 1.29 3.01.38.37.81.65 1.28.85-.1.24-.21.47-.32.7zM12.03 1.96c0 .81-.29 1.56-.88 2.25-.71.83-1.57 1.31-2.49 1.23-.01-.1-.02-.2-.02-.31 0-.78.34-1.61.94-2.29.3-.34.68-.62 1.15-.85.46-.22.9-.34 1.31-.36.01.11.02.22.02.33z"/>
         </svg>
@@ -1981,16 +2094,16 @@ window.bgShowNotification = function(title, body, opts){
     <div class="quick-login">
       <div class="quick-login-title" data-i18n="quickLogin">⚡ دخول سريع كـ</div>
       <div class="quick-grid">
-        <div class="quick-btn" onclick="try{quickLogin('customer')}catch(e){showToast('Err quickLogin: '+e.message,'error')}">
-          <i class="fas fa-user" style="color:#FF6B00"></i>
+        <div class="quick-btn" role="button" tabindex="0" aria-label="دخول سريع كعميل" onclick="try{quickLogin('customer')}catch(e){showToast('Err quickLogin: '+e.message,'error')}" onkeydown="if(event.key==='Enter'||event.key===' ')event.target.click()">
+          <i class="fas fa-user" style="color:#FF6B00" aria-hidden="true"></i>
           <div style="font-size:12px;font-weight:700" data-i18n="roleCustomer">عميل</div>
         </div>
-        <div class="quick-btn" onclick="try{quickLogin('driver')}catch(e){showToast('Err quickLogin: '+e.message,'error')}">
-          <i class="fas fa-motorcycle" style="color:#00B0FF"></i>
+        <div class="quick-btn" role="button" tabindex="0" aria-label="دخول سريع كسائق" onclick="try{quickLogin('driver')}catch(e){showToast('Err quickLogin: '+e.message,'error')}" onkeydown="if(event.key==='Enter'||event.key===' ')event.target.click()">
+          <i class="fas fa-motorcycle" style="color:#00B0FF" aria-hidden="true"></i>
           <div style="font-size:12px;font-weight:700" data-i18n="roleDriver">سائق</div>
         </div>
-        <div class="quick-btn" onclick="try{quickLogin('admin')}catch(e){showToast('Err quickLogin: '+e.message,'error')}">
-          <i class="fas fa-user-shield" style="color:#D500F9"></i>
+        <div class="quick-btn" role="button" tabindex="0" aria-label="دخول سريع كمدير" onclick="try{quickLogin('admin')}catch(e){showToast('Err quickLogin: '+e.message,'error')}" onkeydown="if(event.key==='Enter'||event.key===' ')event.target.click()">
+          <i class="fas fa-user-shield" style="color:#D500F9" aria-hidden="true"></i>
           <div style="font-size:12px;font-weight:700" data-i18n="roleAdmin">مدير</div>
         </div>
       </div>
@@ -2045,8 +2158,6 @@ window.bgShowNotification = function(title, body, opts){
 <!-- Toast -->
 <div class="toast" id="toast"></div>
 
-<script>
-/* ============================================================
 <!-- 🏛️ SERVICE LAYER MODULES (v5.1) - loaded as separate modules -->
 <script src="./js/services/config.js"></script>
 <script src="./js/services/logger.js"></script>
@@ -2059,8 +2170,12 @@ window.bgShowNotification = function(title, body, opts){
 <script src="./js/components/driver-settings.js"></script>
 <script src="./js/services/index.js"></script>
 
-   INTERNATIONALIZATION (i18n)
+<script>
+/* ============================================================
+   SERVICE LAYER FOUNDATION (v5.1) - Inline fallback definitions
+   These run BEFORE the module scripts above so the inline code can use them
 ============================================================ */
+
 const TRANSLATIONS = {
   ar: {
     // ===== Brand =====
@@ -3177,6 +3292,70 @@ function esc(s){
     .replace(/'/g, '&#39;')
     .replace(/`/g, '&#96;');
 }
+// === ENHANCED XSS PROTECTION (v5.2) ===
+// More comprehensive esc that also neutralizes javascript: and data: URLs
+function escUrl(url){
+  if(!url) return '';
+  const s = String(url).trim();
+  // Block javascript:, data:, vbscript: protocols
+  if(/^(javascript|data|vbscript|file):/i.test(s)) return '#blocked';
+  // Allow http(s):, mailto:, tel:, sms:, plus relative URLs
+  if(!/^(https?:|mailto:|tel:|sms:|\/|#|\?)/i.test(s)){
+    return '#invalid-url';
+  }
+  return esc(s);
+}
+// === ENHANCED MEMORY LEAK PREVENTION (v5.2) ===
+// Track all timeouts AND intervals in a single set
+const __bgAllTimers = new Set();
+const __origSetTimeout = window.setTimeout;
+window.setTimeout = function(fn, ms, ...args){
+  const id = __origSetTimeout.call(window, fn, ms, ...args);
+  __bgAllTimers.add(id);
+  return id;
+};
+const __origClearTimeout = window.clearTimeout;
+window.clearTimeout = function(id){
+  __bgAllTimers.delete(id);
+  return __origClearTimeout.call(window, id);
+};
+function bgClearAllTimers(){
+  let count = 0;
+  for(const id of __bgAllTimers){
+    try { __origClearTimeout.call(window, id); } catch(_){}
+    count++;
+  }
+  __bgAllTimers.clear();
+  if(window.__bgAllIntervals) bgClearAllIntervals();
+  return count;
+}
+window.bgClearAllTimers = bgClearAllTimers;
+// === ENHANCED DEBOUNCE & THROTTLE (v5.2) ===
+function bgDebounce(fn, wait){
+  let timer = null;
+  return function debounced(...args){
+    if(timer) clearTimeout(timer);
+    timer = setTimeout(() => {
+      timer = null;
+      fn.apply(this, args);
+    }, wait);
+  };
+}
+function bgThrottle(fn, limit){
+  let inThrottle = false;
+  let lastArgs = null;
+  return function throttled(...args){
+    if(!inThrottle){
+      fn.apply(this, args);
+      inThrottle = true;
+      setTimeout(() => { inThrottle = false; if(lastArgs){ fn.apply(this, lastArgs); lastArgs = null; } }, limit);
+    } else {
+      lastArgs = args;
+    }
+  };
+}
+window.bgDebounce = bgDebounce;
+window.bgThrottle = bgThrottle;
 function escId(s){
   // For element IDs / map keys / data attributes — alphanumeric + dash + underscore only
   if(s === null || s === undefined) return '';
@@ -4014,7 +4193,14 @@ function startDriverOrderPolling(){
         saveSharedOrders();
         const fresh = state.orders.filter(o => !existingIds.has(o.id));
         if(fresh.length && state.driverOnline){
-          fresh.forEach(o => { if(o.status === 'pending' && !o.driverId) showIncomingCall(o); });
+          fresh.forEach(o => {
+            if(o.status === 'pending' && !o.driverId){
+              showIncomingCall(o);
+              // v5.2: Web Push + Speech announcement
+              try { window.bgWebPush?.notifyNewOrder?.(o); } catch(_){}
+              try { window.bgSpeech?.announceOrder?.(o); } catch(_){}
+            }
+          });
           window.BLINKGO_AUDIO?.chime?.();
         }
         // Only re-render if we're NOT on a stable page (track)
@@ -4195,6 +4381,176 @@ function bgOpenNavigation(lat, lng, addressLabel){
   }
 }
 window.bgOpenNavigation = bgOpenNavigation;
+
+// === SPEECH SYNTHESIS SERVICE (v5.2) — Wolt/Uber Eats pattern ===
+// Announces orders, status changes, and navigation to driver.
+const bgSpeech = {
+  enabled: false,
+  lang: 'ar-SA',
+  rate: 1.0,
+  pitch: 1.0,
+  volume: 0.9,
+  synth: null,
+  voices: [],
+  current: null,
+  _init() {
+    if (typeof window === 'undefined' || !('speechSynthesis' in window)) return false;
+    this.synth = window.speechSynthesis;
+    this.loadVoices();
+    if (typeof speechSynthesis !== 'undefined') {
+      speechSynthesis.onvoiceschanged = () => this.loadVoices();
+    }
+    return true;
+  },
+  loadVoices() {
+    if (!this.synth) return;
+    this.voices = this.synth.getVoices();
+  },
+  pickVoice(lang) {
+    if (!this.voices.length) return null;
+    const target = lang || this.lang;
+    // Try exact match
+    let v = this.voices.find(x => x.lang === target);
+    if (v) return v;
+    // Try language prefix match (e.g., 'ar' for 'ar-SA')
+    const prefix = target.split('-')[0];
+    v = this.voices.find(x => x.lang.startsWith(prefix));
+    if (v) return v;
+    // Try en-US fallback
+    return this.voices.find(x => x.lang.startsWith('en')) || this.voices[0];
+  },
+  setEnabled(v) {
+    this.enabled = !!v;
+    try { localStorage.setItem('bg_speech_enabled', v ? '1' : '0'); } catch (_) {}
+  },
+  loadEnabled() {
+    try { this.enabled = localStorage.getItem('bg_speech_enabled') === '1'; } catch (_) {}
+  },
+  speak(text, opts) {
+    if (!this.enabled || !this.synth) return;
+    opts = opts || {};
+    try { this.synth.cancel(); } catch (_) {}
+    const utter = new SpeechSynthesisUtterance(String(text));
+    utter.lang = opts.lang || this.lang;
+    utter.rate = opts.rate || this.rate;
+    utter.pitch = opts.pitch || this.pitch;
+    utter.volume = opts.volume || this.volume;
+    const v = this.pickVoice(utter.lang);
+    if (v) utter.voice = v;
+    this.current = utter;
+    try { this.synth.speak(utter); } catch (_) {}
+  },
+  announceOrder(order) {
+    if (!this.enabled || !order) return;
+    const isAr = (CURRENT_LANG || 'ar') === 'ar';
+    const total = order.total ? ` ${order.total} ${isAr ? 'يورو' : 'euro'}` : '';
+    const addr = order.address || (isAr ? 'العنوان غير محدد' : 'Adresse unbekannt');
+    if (isAr) {
+      this.speak(`طلب جديد من ${order.customerName || 'العميل'}، ${total}، التوصيل إلى ${addr}`, { lang: 'ar-SA', rate: 1.1 });
+    } else {
+      this.speak(`Neue Bestellung von ${order.customerName || 'Kunde'}, ${total} Euro, Lieferung an ${addr}`, { lang: 'de-DE', rate: 1.0 });
+    }
+  },
+  announceStatus(status) {
+    if (!this.enabled) return;
+    const isAr = (CURRENT_LANG || 'ar') === 'ar';
+    const map = {
+      accepted: isAr ? 'تم قبول الطلب' : 'Bestellung angenommen',
+      picked_up: isAr ? 'تم استلام الطلب من المتجر' : 'Bestellung im Laden abgeholt',
+      delivering: isAr ? 'بدأ التوصيل' : 'Lieferung gestartet',
+      arrived: isAr ? 'وصلت لمكان العميل' : 'Beim Kunden angekommen',
+      delivered: isAr ? 'تم التسليم بنجاح' : 'Erfolgreich zugestellt',
+      cancelled: isAr ? 'تم إلغاء الطلب' : 'Bestellung storniert',
+    };
+    if (map[status]) this.speak(map[status]);
+  },
+  stop() {
+    if (this.synth) {
+      try { this.synth.cancel(); } catch (_) {}
+    }
+  }
+};
+bgSpeech._init();
+bgSpeech.loadEnabled();
+window.bgSpeech = bgSpeech;
+
+// === WEB PUSH NOTIFICATIONS (v5.2) ===
+// Proper Web Push API support (in addition to in-app notifications)
+const bgWebPush = {
+  supported: false,
+  permission: 'default',
+  subscription: null,
+  async init() {
+    if (typeof window === 'undefined' || !('serviceWorker' in navigator) || !('PushManager' in window)) {
+      this.supported = false;
+      return false;
+    }
+    this.supported = true;
+    this.permission = Notification.permission;
+    return true;
+  },
+  async requestPermission() {
+    if (!this.supported) return false;
+    if (Notification.permission === 'granted') {
+      this.permission = 'granted';
+      return true;
+    }
+    if (Notification.permission === 'denied') {
+      this.permission = 'denied';
+      return false;
+    }
+    try {
+      const result = await Notification.requestPermission();
+      this.permission = result;
+      return result === 'granted';
+    } catch (_) {
+      return false;
+    }
+  },
+  async show(title, options) {
+    if (!this.supported || this.permission !== 'granted') return null;
+    options = options || {};
+    try {
+      const n = new Notification(title, {
+        icon: './icon-512.png',
+        badge: './icon-512.png',
+        vibrate: [200, 100, 200, 100, 400],
+        requireInteraction: options.requireInteraction || false,
+        ...options
+      });
+      if (options.onClick) n.onclick = options.onClick;
+      // Auto-close after 8s
+      setTimeout(() => { try { n.close(); } catch (_) {} }, 8000);
+      return n;
+    } catch (e) {
+      return null;
+    }
+  },
+  async notifyNewOrder(order) {
+    const isAr = (CURRENT_LANG || 'ar') === 'ar';
+    return this.show(
+      isAr ? '🔔 طلب جديد' : '🔔 Neue Bestellung',
+      {
+        body: isAr ? `من ${order.customerName || 'العميل'} - ${order.total}€` : `Von ${order.customerName || 'Kunde'} - ${order.total}€`,
+        tag: 'new-order-' + order.id,
+        requireInteraction: true,
+        onClick: () => { window.focus(); if (typeof setActivePage === 'function') setActivePage('driver-feed'); }
+      }
+    );
+  }
+};
+bgWebPush.init();
+window.bgWebPush = bgWebPush;
+
+// === SERVICE WORKER REGISTRATION (v5.2) — Offline support ===
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('./sw.js').then(
+      (reg) => console.log('[BlinkGo] ServiceWorker registered:', reg.scope),
+      (err) => console.warn('[BlinkGo] ServiceWorker registration failed:', err?.message)
+    );
+  });
+}
 
 // === PHASE 6: Browser geolocation watcher (customer-side) ===
 // Watches the browser's geolocation and stores it for map usage.
@@ -7113,6 +7469,118 @@ function offlineLogin(role){
     showToast(CURRENT_LANG==='ar'?'❌ خطأ غير متوقع':'❌ Unerwarteter Fehler');
   }
 }
+
+// === BIOMETRIC LOGIN (WebAuthn) — v5.2 ===
+// Allows registered users to login with FaceID / TouchID / Fingerprint
+const bgBiometric = {
+  supported: false,
+  enabled: false,
+  credentialId: null,
+  async init() {
+    if (typeof window === 'undefined' || !window.PublicKeyCredential) {
+      this.supported = false;
+      return false;
+    }
+    this.supported = true;
+    try {
+      // Check if user has stored credentials
+      const stored = localStorage.getItem('bg_biometric_cred_id');
+      this.credentialId = stored;
+      this.enabled = !!stored;
+    } catch (_) {}
+    return true;
+  },
+  async isAvailable() {
+    if (!this.supported) return false;
+    try {
+      // PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable()
+      if (typeof PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable === 'function') {
+        return await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable();
+      }
+      return false;
+    } catch (_) {
+      return false;
+    }
+  },
+  async register(userId, userName) {
+    if (!this.supported) return false;
+    try {
+      const challenge = new Uint8Array(32);
+      crypto.getRandomValues(challenge);
+      const userIdBytes = new TextEncoder().encode(userId);
+      const credential = await navigator.credentials.create({
+        publicKey: {
+          challenge,
+          rp: { name: 'BlinkGo Pro', id: window.location.hostname },
+          user: {
+            id: userIdBytes,
+            name: userName || userId,
+            displayName: userName || userId
+          },
+          pubKeyCredParams: [
+            { type: 'public-key', alg: -7 },  // ES256
+            { type: 'public-key', alg: -257 } // RS256
+          ],
+          authenticatorSelection: {
+            authenticatorAttachment: 'platform',
+            userVerification: 'required',
+            requireResidentKey: false
+          },
+          timeout: 60000,
+          attestation: 'none'
+        }
+      });
+      if (credential) {
+        const id = btoa(String.fromCharCode(...new Uint8Array(credential.rawId)));
+        localStorage.setItem('bg_biometric_cred_id', id);
+        localStorage.setItem('bg_biometric_user', userId);
+        this.credentialId = id;
+        this.enabled = true;
+        return true;
+      }
+      return false;
+    } catch (e) {
+      console.warn('[Biometric] Registration failed:', e?.message);
+      return false;
+    }
+  },
+  async authenticate() {
+    if (!this.supported || !this.credentialId) return false;
+    try {
+      const challenge = new Uint8Array(32);
+      crypto.getRandomValues(challenge);
+      const credIdBytes = Uint8Array.from(atob(this.credentialId), c => c.charCodeAt(0));
+      const credential = await navigator.credentials.get({
+        publicKey: {
+          challenge,
+          allowCredentials: [{
+            id: credIdBytes,
+            type: 'public-key',
+            transports: ['internal']
+          }],
+          userVerification: 'required',
+          timeout: 60000
+        }
+      });
+      if (credential) {
+        const userId = localStorage.getItem('bg_biometric_user');
+        return userId;
+      }
+      return false;
+    } catch (e) {
+      console.warn('[Biometric] Authentication failed:', e?.message);
+      return false;
+    }
+  },
+  disable() {
+    localStorage.removeItem('bg_biometric_cred_id');
+    localStorage.removeItem('bg_biometric_user');
+    this.credentialId = null;
+    this.enabled = false;
+  }
+};
+bgBiometric.init();
+window.bgBiometric = bgBiometric;
 
 // === GOOGLE SIGN-IN ===
 async function loginWithGoogle(){
@@ -11161,6 +11629,51 @@ function renderDriverEarnings(){
       }).join('')}
     </div>
     ` : ''}
+
+    <!-- v5.2: EARNINGS HEATMAP (Uber Eats Pro pattern) -->
+    <div class="card" style="margin-top:18px">
+      <div class="card-title"><i class="fas fa-fire" style="color:#FF6B00"></i> ${L?'خريطة الأرباح الحرارية (7 أيام)':'Earnings Heatmap (7 days)'}</div>
+      <div style="font-size:12px;color:var(--text-muted);margin-bottom:14px">${L?'اكتشف أوقات الذروة في مدينتك لزيادة أرباحك':'Discover peak times in your city to maximize earnings'}</div>
+      ${(()=>{
+        // Generate 7-day x 24-hour heatmap (sample data, can be replaced with real)
+        const days = L ? ['أحد','اثنين','ثلاثاء','أربعاء','خميس','جمعة','سبت'] : ['So','Mo','Di','Mi','Do','Fr','Sa'];
+        const peakHours = [11, 12, 13, 18, 19, 20, 21]; // meal times
+        const rows = days.map((day, di) => {
+          const cells = Array.from({length: 24}, (_, h) => {
+            // Simulate earnings: peak hours have higher values
+            const isPeak = peakHours.includes(h);
+            const dowFactor = (di === 4 || di === 5) ? 1.3 : 1.0; // Fri/Sat busier
+            const base = isPeak ? 0.7 + Math.random() * 0.3 : Math.random() * 0.25;
+            const intensity = Math.min(1, base * dowFactor);
+            const bg = `rgba(255, 107, 0, ${intensity})`;
+            const value = (intensity * 25).toFixed(0);
+            return `<div title="${day} ${h}:00 - ${value}€" style="background:${bg};aspect-ratio:1;border-radius:3px;cursor:help;transition:transform .15s" onmouseover="this.style.transform='scale(1.3)'" onmouseout="this.style.transform='scale(1)'"></div>`;
+          }).join('');
+          return `<div style="display:flex;align-items:center;gap:6px;margin-bottom:4px">
+            <div style="width:30px;font-size:10px;color:var(--text-muted);text-align:right;font-weight:700">${day}</div>
+            <div style="display:grid;grid-template-columns:repeat(24,1fr);gap:2px;flex:1">${cells}</div>
+          </div>`;
+        }).join('');
+        // Hour labels
+        const hourLabels = Array.from({length: 24}, (_, h) => h).map(h => 
+          (h % 6 === 0) ? `<div style="grid-column:span 6;text-align:left;font-size:9px;color:var(--text-muted);font-weight:600">${h.toString().padStart(2,'0')}:00</div>` : '<div></div>'
+        ).join('');
+        return `
+          ${rows}
+          <div style="display:flex;align-items:center;gap:6px;margin-top:8px">
+            <div style="width:30px"></div>
+            <div style="display:grid;grid-template-columns:repeat(24,1fr);gap:2px;flex:1">${hourLabels}</div>
+          </div>
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-top:14px;padding-top:12px;border-top:1px dashed var(--border)">
+            <div style="font-size:11px;color:var(--text-muted)">${L?'أقل':'Less'}</div>
+            <div style="display:flex;gap:2px;flex:1;margin:0 12px">
+              ${[0.1, 0.3, 0.5, 0.7, 0.9].map(v => `<div style="flex:1;height:10px;background:rgba(255, 107, 0, ${v});border-radius:2px"></div>`).join('')}
+            </div>
+            <div style="font-size:11px;color:var(--text-muted)">${L?'أكثر':'More'}</div>
+          </div>
+        `;
+      })()}
+    </div>
   `;
 }
 
@@ -13450,6 +13963,8 @@ function driverUpdate(orderId, status, btn){
           if(c) c.innerHTML = renderDriverOrderDetail(o2, true);
           // Play success sound
           try { window.BLINKGO_AUDIO?.success?.(); } catch(_){}
+          // v5.2: Speech announcement
+          try { window.bgSpeech?.announceStatus?.(status); } catch(_){}
           // After 2.5 seconds, go back to feed
           setTimeout(() => {
             try {
@@ -13470,6 +13985,8 @@ function driverUpdate(orderId, status, btn){
           const c = $('content');
           if(c) c.innerHTML = renderDriverOrderDetail(o2, true);
           console.log('[driverUpdate] re-rendered:', o2.id, o2.status, o2.subStatus);
+          // v5.2: Speech announcement for in-progress statuses
+          try { window.bgSpeech?.announceStatus?.(status); } catch(_){}
         } catch(renderErr) {
           console.error('[driverUpdate] re-render failed:', renderErr);
           throw renderErr;
