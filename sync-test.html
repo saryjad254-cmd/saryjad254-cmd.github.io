@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>BlinkGo Sync Test</title>
+<style>
+body { font-family: -apple-system, sans-serif; background: #0a0a0f; color: #fff; padding: 20px; max-width: 600px; margin: 0 auto; }
+h1 { color: #FF6B00; font-size: 22px; }
+button { background: #FF6B00; color: #fff; border: none; padding: 14px 20px; border-radius: 12px; font-weight: 700; font-size: 16px; cursor: pointer; width: 100%; margin: 8px 0; }
+button.alt { background: #2979FF; }
+button.danger { background: #E53935; }
+.box { background: #14141e; border: 1px solid rgba(255,255,255,0.1); border-radius: 12px; padding: 14px; margin: 10px 0; font-size: 13px; word-break: break-all; }
+.ok { color: #00C853; font-weight: 700; }
+.bad { color: #E53935; font-weight: 700; }
+.info { color: #00B0FF; }
+.muted { color: rgba(255,255,255,0.5); font-size: 11px; }
+pre { background: #000; padding: 10px; border-radius: 8px; font-size: 11px; overflow: auto; max-height: 200px; white-space: pre-wrap; }
+</style>
+</head>
+<body>
+<h1>🧪 BlinkGo Cross-Device Sync Test</h1>
+<p class="muted">افتح الرابط على <b>هاتفك</b> + <b>هاتف صديقك</b> (أو 2 tabs) وافتح الـ Console (F12) قبل ما تضغط أزرار</p>
+
+<button onclick="testPush()">📤 1. PUSH TEST ORDER (مثل ما يفعل العميل)</button>
+<div id="push-result" class="box muted">...</div>
+
+<button class="alt" onclick="testPoll()">📥 2. POLL POOL (مثل ما يفعل السواق)</button>
+<div id="poll-result" class="box muted">...</div>
+
+<button class="danger" onclick="clearPool()">🗑️ 3. CLEAR POOL</button>
+<div id="clear-result" class="box muted">...</div>
+
+<h2 style="color:#00B0FF;font-size:18px;margin-top:24px">📊 Current Pool State</h2>
+<button class="alt" onclick="showPool()">🔄 REFRESH POOL VIEW</button>
+<pre id="pool-view">Loading...</pre>
+
+<h2 style="color:#FFC107;font-size:16px;margin-top:24px">📋 Console Log (live)</h2>
+<pre id="console-log">No logs yet. Open DevTools (F12) to see browser console.</pre>
+
+<script>
+const POOL_URL = 'https://stripe.blinkgo.de';
+const myOrderId = 'test_' + Date.now() + '_' + Math.random().toString(36).slice(2,6);
+let myPollInterval = null;
+
+function log(msg, type) {
+  const el = document.getElementById('console-log');
+  const time = new Date().toLocaleTimeString();
+  el.textContent = '[' + time + '] ' + (type ? '[' + type + '] ' : '') + msg + '\n' + el.textContent;
+  if (type === 'error') console.error(msg);
+  else if (type === 'warn') console.warn(msg);
+  else console.log(msg);
+}
+
+async function testPush() {
+  const out = document.getElementById('push-result');
+  out.innerHTML = '<span class="info">⏳ Sending...</span>';
+  const order = {
+    id: myOrderId,
+    customerId: 'demo_user_' + Math.random().toString(36).slice(2,6),
+    customerName: 'Ahmed Test',
+    customerPhone: '0501234567',
+    items: [{id: 'burger', name: 'Test Burger', price: 5, qty: 1}],
+    total: 5.50,
+    subtotal: 5,
+    deliveryFee: 0.50,
+    address: 'Berlin Test Address',
+    merchant: 'Test Restaurant',
+    pay: 'cash',
+    status: 'pending',
+    createdAt: Date.now()
+  };
+  log('PUSH START: ' + order.id, 'info');
+  try {
+    const res = await fetch(POOL_URL + '/orders', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(order)
+    });
+    log('PUSH response: ' + res.status);
+    const data = await res.json();
+    log('PUSH data: ' + JSON.stringify(data).substring(0, 200));
+    if (res.ok && data.ok) {
+      out.innerHTML = '<span class="ok">✅ SUCCESS!</span><br>Order ID: ' + order.id + '<br>Response: ' + JSON.stringify(data).substring(0, 300);
+    } else {
+      out.innerHTML = '<span class="bad">❌ FAILED</span><br>' + JSON.stringify(data);
+    }
+  } catch(e) {
+    log('PUSH ERROR: ' + e.message, 'error');
+    out.innerHTML = '<span class="bad">❌ NETWORK ERROR</span><br>' + e.message;
+  }
+}
+
+async function testPoll() {
+  const out = document.getElementById('poll-result');
+  out.innerHTML = '<span class="info">⏳ Polling...</span>';
+  log('POLL START', 'info');
+  try {
+    const res = await fetch(POOL_URL + '/orders');
+    const data = await res.json();
+    log('POLL response: ' + res.status + ' - ' + data.count + ' orders');
+    if (res.ok && data.orders) {
+      const html = '<span class="ok">✅ GOT ' + data.count + ' ORDERS</span><br>' +
+        data.orders.map(o => '• ' + o.id + ' (' + (o.status||'?') + ') - ' + (o.customerName||o.customerId||'?')).join('<br>');
+      out.innerHTML = html;
+    } else {
+      out.innerHTML = '<span class="bad">❌ FAILED</span><br>' + JSON.stringify(data);
+    }
+  } catch(e) {
+    log('POLL ERROR: ' + e.message, 'error');
+    out.innerHTML = '<span class="bad">❌ NETWORK ERROR</span><br>' + e.message;
+  }
+}
+
+async function clearPool() {
+  if (!confirm('Delete all orders in pool?')) return;
+  log('CLEAR POOL', 'warn');
+  try {
+    const list = await fetch(POOL_URL + '/orders').then(r => r.json());
+    if (list.orders) {
+      for (const o of list.orders) {
+        // No delete endpoint visible; just push "cancelled" status
+        await fetch(POOL_URL + '/orders/' + o.id, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ status: 'cancelled' })
+        });
+      }
+    }
+    document.getElementById('clear-result').innerHTML = '<span class="ok">✅ Marked ' + (list.orders?.length || 0) + ' orders as cancelled</span>';
+  } catch(e) {
+    log('CLEAR ERROR: ' + e.message, 'error');
+    document.getElementById('clear-result').innerHTML = '<span class="bad">❌ ' + e.message + '</span>';
+  }
+}
+
+async function showPool() {
+  try {
+    const res = await fetch(POOL_URL + '/orders');
+    const data = await res.json();
+    document.getElementById('pool-view').textContent = JSON.stringify(data, null, 2);
+  } catch(e) {
+    document.getElementById('pool-view').textContent = 'Error: ' + e.message;
+  }
+}
+
+showPool();
+log('Test page ready. URL: ' + POOL_URL);
+
+// Auto-poll every 3s
+myPollInterval = setInterval(async () => {
+  try {
+    const res = await fetch(POOL_URL + '/orders');
+    const data = await res.json();
+    if (data.count > 0) {
+      log('AUTO-POLL: ' + data.count + ' orders in pool', 'info');
+    }
+  } catch(_){}
+}, 3000);
+</script>
+</body>
+</html>

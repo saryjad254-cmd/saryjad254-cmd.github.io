@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>BlinkGo Health Check</title>
+<style>
+body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; background: #0a0a0f; color: #fff; padding: 16px; max-width: 480px; margin: 0 auto; }
+h1 { color: #FF6B00; font-size: 20px; margin-bottom: 8px; }
+.subtitle { color: rgba(255,255,255,0.5); font-size: 12px; margin-bottom: 16px; }
+.check { display: flex; align-items: center; gap: 12px; padding: 14px; background: #14141e; border-radius: 12px; margin: 8px 0; border: 1px solid rgba(255,255,255,0.05); }
+.check.loading { border-color: rgba(255,193,7,0.3); }
+.check.ok { border-color: rgba(0,200,83,0.3); }
+.check.bad { border-color: rgba(229,57,53,0.3); }
+.check-icon { width: 32px; height: 32px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 16px; flex-shrink: 0; }
+.check.loading .check-icon { background: rgba(255,193,7,0.2); color: #FFC107; }
+.check.ok .check-icon { background: rgba(0,200,83,0.2); color: #00C853; }
+.check.bad .check-icon { background: rgba(229,57,53,0.2); color: #E53935; }
+.check-content { flex: 1; }
+.check-title { font-size: 14px; font-weight: 700; }
+.check-desc { font-size: 11px; color: rgba(255,255,255,0.5); margin-top: 2px; }
+.btn { display: block; padding: 14px; background: #FF6B00; color: #fff; border: none; border-radius: 12px; font-weight: 700; font-size: 14px; cursor: pointer; text-align: center; text-decoration: none; margin: 12px 0; width: 100%; }
+.btn:active { transform: scale(0.98); }
+.btn.alt { background: #2979FF; }
+.btn.danger { background: #E53935; }
+.section { background: rgba(255,255,255,0.03); padding: 12px; border-radius: 10px; margin: 14px 0; }
+.section h2 { font-size: 13px; color: #00B0FF; margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.5px; }
+.metric { display: flex; justify-content: space-between; font-size: 12px; padding: 4px 0; }
+.metric-label { color: rgba(255,255,255,0.6); }
+.metric-value { color: #fff; font-weight: 700; font-family: monospace; }
+pre { background: #000; padding: 10px; border-radius: 8px; font-size: 10px; overflow: auto; max-height: 150px; white-space: pre-wrap; word-break: break-all; color: #00C853; }
+</style>
+</head>
+<body>
+<h1>🏥 BlinkGo Health Check</h1>
+<p class="subtitle">افتح <b>F12 Console</b> قبل ما تضغط أي زر — بيشوف الـ network requests</p>
+
+<div id="checks">
+  <div class="check loading" id="c-worker">
+    <div class="check-icon">⏳</div>
+    <div class="check-content">
+      <div class="check-title">Cloudflare Worker</div>
+      <div class="check-desc">اختبار stripe.blinkgo.de</div>
+    </div>
+  </div>
+  <div class="check loading" id="c-push">
+    <div class="check-icon">⏳</div>
+    <div class="check-content">
+      <div class="check-title">Push Order Test</div>
+      <div class="check-desc">اختبار إرسال طلب</div>
+    </div>
+  </div>
+  <div class="check loading" id="c-pull">
+    <div class="check-icon">⏳</div>
+    <div class="check-content">
+      <div class="check-title">Pull Pool Test</div>
+      <div class="check-desc">اختبار قراءة الطلبات</div>
+    </div>
+  </div>
+  <div class="check loading" id="c-cross">
+    <div class="check-icon">⏳</div>
+    <div class="check-content">
+      <div class="check-title">Cross-Device Sync</div>
+      <div class="check-desc">افتح على جهاز ثاني للتحقق</div>
+    </div>
+  </div>
+</div>
+
+<button class="btn" onclick="runAllChecks()">🚀 تشغيل جميع الفحوصات</button>
+<button class="btn alt" onclick="testPushOrder()">📤 اختبار Push (مثل العميل)</button>
+<button class="btn alt" onclick="testPullOrder()">📥 اختبار Pull (مثل السائق)</button>
+
+<div class="section">
+  <h2>📊 Current Pool</h2>
+  <div class="metric"><span class="metric-label">Total orders:</span><span class="metric-value" id="m-count">-</span></div>
+  <div class="metric"><span class="metric-label">Last push:</span><span class="metric-value" id="m-push">-</span></div>
+  <div class="metric"><span class="metric-label">Last pull:</span><span class="metric-value" id="m-pull">-</span></div>
+  <div class="metric"><span class="metric-label">Last order ID:</span><span class="metric-value" id="m-latest">-</span></div>
+</div>
+
+<div class="section">
+  <h2>📋 Last Pool Contents (JSON)</h2>
+  <pre id="pool-json">Loading...</pre>
+</div>
+
+<div class="section">
+  <h2>🔗 Quick Links</h2>
+  <a class="btn" href="./?fresh=1" style="background:#00C853">🛒 Open Main App (Customer/Driver)</a>
+  <a class="btn alt" href="https://stripe.blinkgo.de/orders" target="_blank">🌐 View Pool Directly (API)</a>
+</div>
+
+<script>
+const POOL_URL = 'https://stripe.blinkgo.de';
+let myTestOrderId = null;
+
+function setStatus(id, ok, title, desc) {
+  const el = document.getElementById(id);
+  el.className = 'check ' + (ok ? 'ok' : 'bad');
+  el.querySelector('.check-icon').innerHTML = ok ? '✓' : '✗';
+  el.querySelector('.check-title').textContent = title;
+  el.querySelector('.check-desc').textContent = desc;
+}
+
+function setLoading(id, title, desc) {
+  const el = document.getElementById(id);
+  el.className = 'check loading';
+  el.querySelector('.check-icon').innerHTML = '⏳';
+  el.querySelector('.check-title').textContent = title;
+  el.querySelector('.check-desc').textContent = desc;
+}
+
+async function checkWorker() {
+  setLoading('c-worker', 'Cloudflare Worker', 'Testing...');
+  try {
+    const res = await fetch(POOL_URL + '/health');
+    const data = await res.json();
+    if (res.ok && data.status === 'ok') {
+      setStatus('c-worker', true, 'Worker online', data.service || 'stripe.blinkgo.de');
+    } else {
+      setStatus('c-worker', false, 'Worker error', JSON.stringify(data).substring(0, 60));
+    }
+  } catch (e) {
+    setStatus('c-worker', false, 'Network error', e.message);
+  }
+}
+
+async function testPushOrder() {
+  setLoading('c-push', 'Pushing order...', 'Sending POST to Worker');
+  myTestOrderId = 'health_' + Date.now() + '_' + Math.random().toString(36).slice(2,6);
+  try {
+    const res = await fetch(POOL_URL + '/orders', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        id: myTestOrderId,
+        customerId: 'health_check',
+        customerName: 'Health Check',
+        customerPhone: '000',
+        items: [{id: 'test', name: 'Health Check Item', price: 1, qty: 1}],
+        total: 1,
+        subtotal: 1,
+        deliveryFee: 0,
+        address: 'Health Check Address',
+        merchant: 'Test',
+        pay: 'cash',
+        status: 'pending',
+        createdAt: Date.now()
+      })
+    });
+    document.getElementById('m-push').textContent = new Date().toLocaleTimeString();
+    if (res.ok) {
+      setStatus('c-push', true, 'Push successful!', 'ID: ' + myTestOrderId);
+      // Auto-verify by re-pulling
+      setTimeout(refreshPool, 500);
+    } else {
+      setStatus('c-push', false, 'Push failed', 'HTTP ' + res.status);
+    }
+  } catch (e) {
+    setStatus('c-push', false, 'Push error', e.message);
+  }
+}
+
+async function testPullOrder() {
+  setLoading('c-pull', 'Pulling...', 'GET /orders');
+  try {
+    const res = await fetch(POOL_URL + '/orders');
+    const data = await res.json();
+    document.getElementById('m-pull').textContent = new Date().toLocaleTimeString();
+    document.getElementById('m-count').textContent = data.count || 0;
+    if (data.orders && data.orders.length > 0) {
+      document.getElementById('m-latest').textContent = data.orders[data.orders.length-1].id;
+    }
+    if (res.ok && data.orders) {
+      setStatus('c-pull', true, 'Got ' + data.orders.length + ' orders', 'Latest: ' + (data.orders[data.orders.length-1]?.id || 'none'));
+      document.getElementById('pool-json').textContent = JSON.stringify(data, null, 2);
+    } else {
+      setStatus('c-pull', false, 'Pull failed', JSON.stringify(data).substring(0, 60));
+    }
+  } catch (e) {
+    setStatus('c-pull', false, 'Pull error', e.message);
+  }
+}
+
+async function refreshPool() {
+  try {
+    const res = await fetch(POOL_URL + '/orders');
+    const data = await res.json();
+    document.getElementById('pool-json').textContent = JSON.stringify(data, null, 2);
+    document.getElementById('m-count').textContent = data.count || 0;
+    if (data.orders && data.orders.length > 0) {
+      document.getElementById('m-latest').textContent = data.orders[data.orders.length-1].id;
+    }
+  } catch (e) {}
+}
+
+async function runAllChecks() {
+  await checkWorker();
+  await testPushOrder();
+  await testPullOrder();
+  // Cross-device: just show what to do
+  setStatus('c-cross', true, 'Manual test required', 'Open on another device → should see same orders');
+  await refreshPool();
+}
+
+// Auto-run worker check on load
+checkWorker();
+refreshPool();
+
+// Auto-poll every 5s to show live pool state
+setInterval(refreshPool, 5000);
+</script>
+</body>
+</html>
