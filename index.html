@@ -1807,6 +1807,69 @@ window.bgShowNotification = function(title, body, opts){
 </div>
 <body>
 
+<!-- PHASE 7: SAFETY NET — runs immediately, never blocks the app -->
+<script>
+(function(){
+  'use strict';
+  // Hide loading screen after 3 seconds no matter what
+  setTimeout(function(){
+    try {
+      var loading = document.getElementById('loading');
+      if(loading && loading.style.display !== 'none'){
+        console.warn('[BlinkGo Safety] Loading screen still visible after 3s — force hiding');
+        loading.style.display = 'none';
+      }
+      var auth = document.getElementById('authScreen');
+      if(auth && (auth.style.display === 'none' || auth.style.display === '') && !window.state?.user){
+        // If auth is hidden but no user is logged in, show it
+        if(auth.style.display === 'none'){
+          console.warn('[BlinkGo Safety] Auth hidden but no user — restoring auth screen');
+          auth.style.display = 'flex';
+        }
+      }
+    } catch(e){ console.warn('[BlinkGo Safety]', e); }
+    // After 4s, check if app is visible. If not, show safety net.
+    setTimeout(function(){
+      try {
+        var app = document.getElementById('app');
+        var auth = document.getElementById('authScreen');
+        var net = document.getElementById('bgSafetyNet');
+        var appVisible = app && (app.style.display === 'block' || app.classList.contains('show'));
+        var authVisible = auth && (auth.style.display === 'flex' || auth.style.display === '');
+        if(!appVisible && !authVisible && net){
+          var msg = document.getElementById('bgSafetyNetMsg');
+          if(msg){
+            var lang = (navigator.language||'ar').toLowerCase();
+            var isAr = lang.indexOf('ar') === 0;
+            msg.innerHTML = isAr
+              ? 'واجهنا مشكلة في التحميل.<br>تأكد من الاتصال بالإنترنت واضغط الزر بالأسفل.'
+              : 'Problem beim Laden.<br>Überprüfe deine Internetverbindung und klicke unten.';
+          }
+          net.style.display = 'flex';
+        }
+      } catch(e){}
+    }, 4000);
+  }, 3000);
+
+  // Wire the safety net reload button
+  function wireSafetyBtn(){
+    var btn = document.getElementById('bgSafetyNetBtn');
+    if(btn && !btn.dataset.wired){
+      btn.dataset.wired = '1';
+      btn.addEventListener('click', function(){
+        try { localStorage.clear(); sessionStorage.clear(); } catch(_){}
+        window.location.href = window.location.pathname + '?fresh=1&t=' + Date.now();
+      });
+    }
+  }
+  if(document.readyState === 'loading'){
+    document.addEventListener('DOMContentLoaded', wireSafetyBtn);
+  } else {
+    wireSafetyBtn();
+  }
+})();
+</script>
+
 <!-- Loading (hidden by default, shown only briefly during initial load) -->
 <div id="loading" style="display:none">
   <div class="speed-lines"></div>
@@ -1814,6 +1877,15 @@ window.bgShowNotification = function(title, body, opts){
   <div class="load-title" style="margin-top:24px">BlinkGo</div>
   <div class="load-tagline" id="loadTagline">Schnell · Zuverlässig · <b>Für Dich</b></div>
   <div class="load-bar"><div class="load-bar-fill"></div></div>
+</div>
+
+<!-- PHASE 7: Safety net — ensures the app is always reachable even if init fails -->
+<div id="bgSafetyNet" style="display:none;position:fixed;inset:0;background:#0a0a0f;z-index:999999;flex-direction:column;align-items:center;justify-content:center;padding:24px;text-align:center;color:#fff">
+  <img src="./logo-512.png" alt="BlinkGo" style="width:96px;height:96px;border-radius:24px;margin-bottom:20px">
+  <div style="font-size:22px;font-weight:900;margin-bottom:8px;background:linear-gradient(90deg,#E53935,#FF6B00);-webkit-background-clip:text;-webkit-text-fill-color:transparent">BlinkGo Pro</div>
+  <div id="bgSafetyNetMsg" style="font-size:13px;line-height:1.6;max-width:320px;color:#aaa;margin-bottom:20px"></div>
+  <button id="bgSafetyNetBtn" style="background:linear-gradient(135deg,#E53935,#FF6B00);color:#fff;border:none;padding:14px 28px;border-radius:14px;font-size:15px;font-weight:800;cursor:pointer">إعادة التحميل / Neu laden</button>
+  <div style="font-size:10px;color:#666;margin-top:20px">v5.1 · driver-prefs v1 · Wolt-style settings</div>
 </div>
 
 <!-- AUTH -->
