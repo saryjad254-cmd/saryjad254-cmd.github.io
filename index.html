@@ -4070,6 +4070,49 @@ function bgCallPhone(phone){
   bgHaptic && bgHaptic([15]);
 }
 window.bgCallPhone = bgCallPhone;
+
+// === PHASE 3 FIX: Image compression for delivery photos ===
+async function bgCompressImage(file, maxWidth, quality){
+  return new Promise((resolve, reject) => {
+    if(!file || !file.type || !file.type.startsWith('image/')){
+      reject(new Error('Not an image'));
+      return;
+    }
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error('FileReader failed'));
+    reader.onload = (ev) => {
+      const img = new Image();
+      img.onerror = () => reject(new Error('Image load failed'));
+      img.onload = () => {
+        try {
+          let w = img.naturalWidth || img.width;
+          let h = img.naturalHeight || img.height;
+          // Resize if larger than maxWidth
+          if(w > maxWidth){
+            const ratio = maxWidth / w;
+            w = Math.round(maxWidth);
+            h = Math.round(h * ratio);
+          }
+          const canvas = document.createElement('canvas');
+          canvas.width = w;
+          canvas.height = h;
+          const ctx = canvas.getContext('2d');
+          if(!ctx){ reject(new Error('Canvas context failed')); return; }
+          ctx.drawImage(img, 0, 0, w, h);
+          // Output as JPEG for compression (unless PNG with transparency)
+          const isPng = file.type === 'image/png';
+          const out = isPng ? canvas.toDataURL('image/png') : canvas.toDataURL('image/jpeg', quality || 0.82);
+          resolve(out);
+        } catch(e){
+          reject(e);
+        }
+      };
+      img.src = ev.target.result;
+    };
+    reader.readAsDataURL(file);
+  });
+}
+window.bgCompressImage = bgCompressImage;
 // Inject keyframes once (no-op if already present)
 (function bgInjectModalAnimations(){
   if(document.getElementById('bgModalAnimStyles')) return;
@@ -6160,6 +6203,16 @@ function handleRegister(e){
 $('registerForm').addEventListener('submit', handleRegister);
 
 function quickLogin(role){
+  // === PHASE 2 FIX: Stop all polling/subscriptions from previous user ===
+  try { bgStopAllPolling && bgStopAllPolling(); } catch(_){}
+  try { stopDriverOrderPolling && stopDriverOrderPolling(); } catch(_){}
+  try { stopCustomerPoolPolling && stopCustomerPoolPolling(); } catch(_){}
+  try { window._driverOrdersUnsub && window._driverOrdersUnsub(); } catch(_){}
+  try { window._customerOrdersUnsub && window._customerOrdersUnsub(); } catch(_){}
+  try { window._adminOrdersUnsub && window._adminOrdersUnsub(); } catch(_){}
+  // Clear stale order data from previous session
+  try { state.orders = []; state.notifications = []; state.driverActiveOrder = null; state.trackingOrderId = null; } catch(_){}
+  try { saveSharedOrders && saveSharedOrders(); } catch(_){}
   // Clean up any stuck notifications / banners before re-login
   try { if(window.bgClearAllNotices) window.bgClearAllNotices(); } catch(_){}
   // Reset seen-order tracking so new user starts clean (no audio spam from previous user's orders)
@@ -10103,24 +10156,24 @@ window.driverTakePhoto = function(orderId){
       document.body.appendChild(input);
     }
     input.value = ''; // reset
-    input.onchange = (e) => {
+    input.onchange = async (e) => {
       const file = e.target.files && e.target.files[0];
       if(!file) return;
-      if(file.size > 5 * 1024 * 1024){
-        showToast(CURRENT_LANG==='ar'?'❌ الصورة كبيرة جداً (أكثر من 5MB)':'❌ Bild zu groß (max 5MB)');
+      if(file.size > 10 * 1024 * 1024){
+        showToast(CURRENT_LANG==='ar'?'❌ الصورة كبيرة جداً (أكثر من 10MB)':'❌ Bild zu groß (max 10MB)', 'error');
         return;
       }
-      const reader = new FileReader();
-      reader.onload = (ev) => {
-        const dataUrl = ev.target.result;
+      try {
+        // === PHASE 3 FIX: Compress image before storing (DoorDash pattern) ===
+        const compressedDataUrl = await bgCompressImage(file, 1200, 0.82);
         // Find order in state
         let o = state.orders.find(x => String(x.id) === String(orderId));
         if(!o){
           const all = loadSharedOrders();
           o = all.find(x => String(x.id) === String(orderId));
         }
-        if(!o) return;
-        o.deliveryPhoto = dataUrl;
+        if(!o) { showToast(CURRENT_LANG==='ar'?'❌ الطلب غير موجود':'❌ Bestellung nicht gefunden', 'error'); return; }
+        o.deliveryPhoto = compressedDataUrl;
         o.deliveryPhotoAt = Date.now();
         // Save to shared orders
         const all = loadSharedOrders();
@@ -10130,15 +10183,18 @@ window.driverTakePhoto = function(orderId){
           state.orders = all;
           saveSharedOrders();
         }
-        // Show success + preview
-        showToast(CURRENT_LANG==='ar'?'✅ تم حفظ صورة التسليم':'✅ Lieferfoto gespeichert');
+        // Show success + haptic
+        showToast(CURRENT_LANG==='ar'?'✅ تم حفظ صورة التسليم':'✅ Lieferfoto gespeichert', 'success');
+        bgHaptic && bgHaptic([8, 30, 8]);
         // Re-render to show the photo
         if(state.page === 'driver-active'){
           const c = document.getElementById('content');
           if(c) c.innerHTML = renderDriverOrderDetail(o, true);
         }
-      };
-      reader.readAsDataURL(file);
+      } catch(err){
+        console.error('[BlinkGo] Photo upload failed:', err);
+        showToast(CURRENT_LANG==='ar'?'❌ فشل تحميل الصورة':'❌ Foto konnte nicht geladen werden', 'error');
+      }
     };
     input.click();
   } catch(e){
