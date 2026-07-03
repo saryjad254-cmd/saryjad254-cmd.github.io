@@ -158,6 +158,7 @@
      */
     async findAll(filter = {}) {
       if (!this.enabled) return [];
+      if (this._rateLimitedUntil && Date.now() < this._rateLimitedUntil) return [];
       try {
         const params = new URLSearchParams();
         if (filter.status) params.set('status', filter.status);
@@ -172,8 +173,19 @@
       } catch (err) {
         this.consecutiveErrors++;
         this.lastErrorAt = Date.now();
-        if (this.logger) this.logger.warn('OrdersRepository', `findAll failed: ${err.message}`);
-        return []; // graceful degradation
+        const isRateLimit = err && err.message && (
+          err.message.includes('Too many subrequests') ||
+          err.message.includes('429') ||
+          err.code === 'E012'
+        );
+        if (isRateLimit) {
+          const backoff = Math.min(30000 * Math.pow(2, Math.min(this.consecutiveErrors - 1, 4)), 300000);
+          this._rateLimitedUntil = Date.now() + backoff;
+          if (this.logger) this.logger.warn('OrdersRepository', `Rate-limited, backing off ${backoff / 1000}s`);
+        } else {
+          if (this.logger) this.logger.warn('OrdersRepository', `findAll failed: ${err.message}`);
+        }
+        return [];
       }
     }
 
