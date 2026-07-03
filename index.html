@@ -5211,21 +5211,30 @@ async function bgInitGoogleMap(orderId, containerId){
     // Clear any previous content
     container.innerHTML = '';
     
-    // Create new map
+    // Create new map — Apple Maps-like smooth dark style
     const map = new google.maps.Map(container, {
       center: { lat: userLat, lng: userLng },
       zoom: 14,
       mapTypeId: 'roadmap',
       styles: window.__bgGoogleMapStyle,
-      disableDefaultUI: false,
+      disableDefaultUI: true,  // cleaner, no POI clutter
       zoomControl: true,
       mapTypeControl: false,
-      scaleControl: true,
+      scaleControl: false,
       streetViewControl: false,
       rotateControl: false,
       fullscreenControl: false,
       gestureHandling: 'greedy',
-      backgroundColor: '#0a3050'
+      backgroundColor: '#1c2530',
+      // === SMOOTH SCROLLING (Apple Maps feel) ===
+      scrollwheel: true,
+      smoothZoom: true,
+      // === PERFORMANCE ===
+      heading: 0,
+      tilt: 0,
+      // === MIN/MAX ZOOM ===
+      minZoom: 3,
+      maxZoom: 19
     });
     
     window.__bgGoogleMapInstance = map;
@@ -5851,47 +5860,96 @@ window.bgLoadGoogleMaps = function(){
 };
 
 // === GOOGLE MAPS STYLE (Wolt dark) ===
+// === APPLE MAPS DARK MODE STYLE (v5.1) ===
+// Replicates Apple Maps' dark mode aesthetic: dark green forests, gray roads,
+// saturated POI icons, white labels with shadow. Smooth, premium feel.
 window.__bgGoogleMapStyle = [
-  { elementType: 'geometry', stylers: [{ color: '#0f1d35' }] },
-  { elementType: 'labels.text.stroke', stylers: [{ color: '#0a3050' }] },
-  { elementType: 'labels.text.fill', stylers: [{ color: '#a8c5e0' }] },
-  { featureType: 'administrative.locality', elementType: 'labels.text.fill', stylers: [{ color: '#7fb3d5' }] },
-  { featureType: 'poi', elementType: 'labels.text.fill', stylers: [{ color: '#6a8caa' }] },
-  { featureType: 'poi.park', elementType: 'geometry', stylers: [{ color: '#0d5e3a' }] },
-  { featureType: 'road', elementType: 'geometry', stylers: [{ color: '#1e3556' }] },
-  { featureType: 'road', elementType: 'geometry.stroke', stylers: [{ color: '#082540' }] },
-  { featureType: 'road.arterial', elementType: 'geometry', stylers: [{ color: '#264870' }] },
-  { featureType: 'road.highway', elementType: 'geometry', stylers: [{ color: '#3a5f8a' }] },
-  { featureType: 'road.highway', elementType: 'geometry.stroke', stylers: [{ color: '#1e3556' }] },
-  { featureType: 'road.local', elementType: 'labels.text.fill', stylers: [{ color: '#5a7a99' }] },
-  { featureType: 'transit', elementType: 'geometry', stylers: [{ color: '#1a2942' }] },
-  { featureType: 'transit.station', elementType: 'labels.text.fill', stylers: [{ color: '#7fb3d5' }] },
-  { featureType: 'water', elementType: 'geometry', stylers: [{ color: '#03101e' }] },
-  { featureType: 'water', elementType: 'labels.text.fill', stylers: [{ color: '#3a5f8a' }] }
+  // === BASE — dark gray/navy ===
+  { elementType: 'geometry', stylers: [{ color: '#1c2530' }] },
+  { elementType: 'labels.icon', stylers: [{ visibility: 'on' }] },
+  { elementType: 'labels.text.fill', stylers: [{ color: '#e8eef4' }, { weight: 1.2 }] },
+  { elementType: 'labels.text.stroke', stylers: [{ color: '#0a0f17' }, { weight: 3.5 }] },
+
+  // === ADMINISTRATIVE — subtle ===
+  { featureType: 'administrative', elementType: 'geometry', stylers: [{ color: '#2a3a4a' }, { visibility: 'simplified' }] },
+  { featureType: 'administrative.country', elementType: 'labels.text.fill', stylers: [{ color: '#b8c8d8' }] },
+  { featureType: 'administrative.locality', elementType: 'labels.text.fill', stylers: [{ color: '#ffffff' }, { weight: 2 }] },
+  { featureType: 'administrative.neighborhood', elementType: 'labels.text.fill', stylers: [{ color: '#a8b8c8' }] },
+
+  // === POI — saturated colors visible ===
+  { featureType: 'poi', elementType: 'all', stylers: [{ visibility: 'on' }] },
+  { featureType: 'poi', elementType: 'geometry', stylers: [{ color: '#252f3a' }] },
+  { featureType: 'poi', elementType: 'labels.text.fill', stylers: [{ color: '#d8e0e8' }] },
+  { featureType: 'poi.attraction', elementType: 'geometry', stylers: [{ color: '#3a2a3a' }] },
+  { featureType: 'poi.business', elementType: 'geometry', stylers: [{ color: '#2a3a3a' }] },
+  { featureType: 'poi.government', elementType: 'geometry', stylers: [{ color: '#2a3040' }] },
+  { featureType: 'poi.medical', elementType: 'geometry', stylers: [{ color: '#3a2a2a' }] },
+  { featureType: 'poi.park', elementType: 'geometry', stylers: [{ color: '#1a3d2a' }] }, // DARK GREEN
+  { featureType: 'poi.park', elementType: 'labels.text.fill', stylers: [{ color: '#7fcf9a' }] },
+  { featureType: 'poi.place_of_worship', elementType: 'geometry', stylers: [{ color: '#2a2a3a' }] },
+  { featureType: 'poi.school', elementType: 'geometry', stylers: [{ color: '#2a3a4a' }] },
+  { featureType: 'poi.sports_complex', elementType: 'geometry', stylers: [{ color: '#1a3a3a' }] },
+
+  // === ROADS — light gray on dark base ===
+  { featureType: 'road', elementType: 'geometry', stylers: [{ color: '#3a4858' }, { lightness: 10 }] },
+  { featureType: 'road', elementType: 'geometry.stroke', stylers: [{ color: '#1c2530' }, { weight: 1 }] },
+  { featureType: 'road', elementType: 'labels.text.fill', stylers: [{ color: '#e0e8f0' }] },
+  { featureType: 'road.arterial', elementType: 'geometry', stylers: [{ color: '#485868' }] },
+  { featureType: 'road.arterial', elementType: 'geometry.stroke', stylers: [{ color: '#2a3848' }] },
+  { featureType: 'road.highway', elementType: 'geometry', stylers: [{ color: '#5a6a7a' }] },
+  { featureType: 'road.highway', elementType: 'geometry.stroke', stylers: [{ color: '#3a4858' }] },
+  { featureType: 'road.highway', elementType: 'labels.text.fill', stylers: [{ color: '#ffffff' }] },
+  { featureType: 'road.local', elementType: 'geometry', stylers: [{ color: '#384550' }] },
+  { featureType: 'road.local', elementType: 'labels.text.fill', stylers: [{ color: '#b8c8d8' }] },
+
+  // === TRANSIT — visible but subtle ===
+  { featureType: 'transit', elementType: 'geometry', stylers: [{ color: '#2a3848' }] },
+  { featureType: 'transit.line', elementType: 'geometry', stylers: [{ color: '#3a5a7a' }] },
+  { featureType: 'transit.station', elementType: 'geometry', stylers: [{ color: '#3a4858' }] },
+  { featureType: 'transit.station', elementType: 'labels.text.fill', stylers: [{ color: '#a8c5e0' }] },
+  { featureType: 'transit.station.airport', elementType: 'geometry', stylers: [{ color: '#3a4858' }] },
+  { featureType: 'transit.station.bus', elementType: 'geometry', stylers: [{ color: '#3a4858' }] },
+
+  // === WATER — dark blue ===
+  { featureType: 'water', elementType: 'geometry', stylers: [{ color: '#0a1a2e' }] },
+  { featureType: 'water', elementType: 'geometry.stroke', stylers: [{ color: '#1a2a4a' }] },
+  { featureType: 'water', elementType: 'labels.text.fill', stylers: [{ color: '#5a8aaa' }] },
+  { featureType: 'water', elementType: 'labels.text.stroke', stylers: [{ color: '#0a1a2e' }] },
+
+  // === LANDSCAPE — subtle differentiation ===
+  { featureType: 'landscape', elementType: 'geometry', stylers: [{ color: '#1c2530' }] },
+  { featureType: 'landscape.man_made', elementType: 'geometry', stylers: [{ color: '#252f3a' }] },
+  { featureType: 'landscape.natural', elementType: 'geometry', stylers: [{ color: '#1a2525' }] },
+  { featureType: 'landscape.natural.landcover', elementType: 'geometry', stylers: [{ color: '#1a2a1a' }] },
+  { featureType: 'landscape.natural.terrain', elementType: 'geometry', stylers: [{ color: '#1a2520' }] }
 ];
 
 // === USER LOCATION MARKER (SVG) ===
 window.__bgUserMarkerSvg = function(){
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32">
-    <circle cx="16" cy="16" r="14" fill="rgba(0,157,224,.25)"/>
-    <circle cx="16" cy="16" r="8" fill="#009DE0" stroke="#fff" stroke-width="2.5"/>
-    <circle cx="16" cy="16" r="3" fill="#fff"/>
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="36" height="36" viewBox="0 0 36 36">
+    <circle cx="18" cy="18" r="16" fill="rgba(0,176,255,.25)"/>
+    <circle cx="18" cy="18" r="10" fill="#00B0FF" stroke="#fff" stroke-width="3"/>
+    <circle cx="18" cy="18" r="4" fill="#fff"/>
   </svg>`;
 };
 
 window.__bgDriverMarkerSvg = function(initials){
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="56" height="56" viewBox="0 0 56 56">
-    <circle cx="28" cy="28" r="24" fill="rgba(0,157,224,.15)"/>
-    <circle cx="28" cy="28" r="20" fill="#009DE0" stroke="#fff" stroke-width="3"/>
-    <text x="28" y="34" text-anchor="middle" font-size="18" font-weight="800" fill="#fff" font-family="Arial">${initials||'D'}</text>
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">
+    <circle cx="32" cy="32" r="28" fill="rgba(0,157,224,.18)"/>
+    <circle cx="32" cy="32" r="22" fill="none" stroke="rgba(0,157,224,.4)" stroke-width="2">
+      <animate attributeName="r" values="22;32;22" dur="2.4s" repeatCount="indefinite"/>
+      <animate attributeName="opacity" values="0.6;0;0.6" dur="2.4s" repeatCount="indefinite"/>
+    </circle>
+    <circle cx="32" cy="32" r="20" fill="#009DE0" stroke="#fff" stroke-width="3.5"/>
+    <text x="32" y="38" text-anchor="middle" font-size="18" font-weight="800" fill="#fff" font-family="-apple-system,Inter,sans-serif">${initials||'D'}</text>
   </svg>`;
 };
 
 window.__bgCustomerMarkerSvg = function(){
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="44" height="56" viewBox="0 0 44 56">
-    <path d="M22 0 C9.85 0 0 9.85 0 22 c0 16.5 22 34 22 34 s22 -17.5 22 -34 C44 9.85 34.15 0 22 0 z" fill="#009DE0" stroke="#fff" stroke-width="2.5"/>
-    <path d="M22 8 L30 16 L30 26 L26 30 L18 30 L14 26 L14 16 Z" fill="#fff"/>
-    <circle cx="22" cy="34" r="2.5" fill="#fff"/>
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="48" height="60" viewBox="0 0 48 60">
+    <path d="M24 0 C10.75 0 0 10.75 0 24 c0 18 24 36 24 36 s24 -18 24 -36 C48 10.75 37.25 0 24 0 z" fill="#FF1744" stroke="#fff" stroke-width="3"/>
+    <path d="M24 9 L34 18 L34 30 L29 35 L19 35 L14 30 L14 18 Z" fill="#fff"/>
+    <circle cx="24" cy="38" r="3" fill="#fff"/>
   </svg>`;
 };
 
