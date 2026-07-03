@@ -5,7 +5,7 @@
  */
 describe('Integration: Order Flow', () => {
   beforeEach(() => {
-    if (window.EventBus) window.EventBus.clear();
+    // Clear only AnalyticsService (not EventBus — persistent listeners like analytics tracking must survive)
     if (window.AnalyticsService) window.AnalyticsService.clear();
     if (window.Logger) window.Logger.clearBuffer();
   });
@@ -63,7 +63,10 @@ describe('Integration: Order Flow', () => {
   it('should track analytics for order events', async () => {
     window.AnalyticsService.clear();
     const orderId = 'analytics_test_' + Date.now();
+    let pushed = false;
     try {
+      // Pre-subscribe to EventBus to know when the event fires
+      const unsub = window.EventBus.on('order:created', () => { pushed = true; });
       await window.ordersRepository.create({
         id: orderId,
         customerName: 'Analytics Test',
@@ -72,19 +75,27 @@ describe('Integration: Order Flow', () => {
         createdAt: Date.now(),
         items: [{ id: 'x', name: 'x', price: 5, qty: 1 }],
       });
-      // Wait briefly for event to fire
-      await new Promise((r) => setTimeout(r, 100));
+      unsub();
+      // Wait for the event to propagate to AnalyticsService
       const events = window.AnalyticsService.getEvents('order_created');
-      TestRunner.greaterThan(events.length, 0, 'order_created event tracked');
+      // Event should be tracked synchronously since EventBus wiring happens at module load
+      TestRunner.ok(pushed || events.length > 0, 'order:created event was emitted');
+      TestRunner.greaterThan(events.length, 0, 'order_created analytics event tracked (got ' + events.length + ' events)');
+      if (events.length > 0) {
+        const evt = events[0];
+        TestRunner.equal(evt.properties.id, orderId, 'Tracked event has correct order id');
+      }
     } catch (err) {
-      TestRunner.skip('Skipping: ' + err.message);
+      TestRunner.skip('Network unavailable: ' + err.message);
     }
-  }, { skip: !navigator.onLine });
+  });
 });
 
 describe('Integration: EventBus Flow', () => {
   beforeEach(() => {
-    if (window.EventBus) window.EventBus.clear();
+    // Don't clear EventBus — its persistent listeners are needed by other tests
+    // Clear only AnalyticsService
+    if (window.AnalyticsService) window.AnalyticsService.clear();
   });
 
   it('should propagate order events through EventBus', () => {

@@ -88,21 +88,31 @@
       global.setActivePage.__bg_wrapped = true;
     }
 
-    // Listen to repository events
-    if (global.EventBus) {
-      global.EventBus.on('order:created', (o) => {
-        if (global.AnalyticsService) global.AnalyticsService.track('order_created', { id: o?.id, total: o?.total });
-      });
-    }
   }
 
-  // Wire on DOMContentLoaded (after main script has run)
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', bgWireAnalytics);
-  } else {
-    // DOM already loaded — run immediately (and a small delay for main script)
-    setTimeout(bgWireAnalytics, 100);
+  // === IMMEDIATE EventBus wiring (works in Node + browser, no DOM dependency) ===
+  if (global.EventBus && global.AnalyticsService) {
+    global.EventBus.on('order:created', (o) => {
+      try {
+        global.AnalyticsService.track('order_created', {
+          id: o && o.id,
+          total: o && (o.total || (o.order && o.order.total)),
+        });
+      } catch (_) {}
+    });
   }
+
+  // Function wrapping on DOMContentLoaded (only in browser — needs main script)
+  if (typeof document !== 'undefined') {
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', bgWireAnalytics);
+    } else if (document.readyState === 'complete') {
+      setTimeout(bgWireAnalytics, 100);
+    } else {
+      setTimeout(bgWireAnalytics, 50);
+    }
+  }
+  // In Node.js test env (no document): function wrapping is skipped — only EventBus is wired.
 
   // Log successful boot
   if (global.Logger) {

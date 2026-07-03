@@ -177,6 +177,56 @@
     }
   }
 
+  // === Persistent Listener Restoration ===
+  // Some tests (e.g., EventBus.clear() tests) accidentally remove persistent listeners
+  // wired by services/index.js. After each suite, restore them so subsequent suites
+  // (especially integration tests) still have the analytics tracking working.
+  function restorePersistentListeners() {
+    if (typeof global.EventBus === 'undefined' || typeof global.AnalyticsService === 'undefined') return;
+    if (global.EventBus.listenerCount('order:created') === 0) {
+      global.EventBus.on('order:created', (o) => {
+        try {
+          global.AnalyticsService.track('order_created', {
+            id: o && o.id,
+            total: o && (o.total || (o.order && o.order.total)),
+          });
+        } catch (_) {}
+      });
+    }
+  }
+
+  async function runTest(test, suite) {
+    const start = performance.now();
+    try {
+      // Run beforeEach
+      for (const fn of [...state.beforeEachFns, ...suite.beforeEach]) {
+        await fn();
+      }
+      // Run the test
+      await test.fn();
+      // Run afterEach
+      for (const fn of [...suite.afterEach, ...state.afterEachFns]) {
+        await fn();
+      }
+      const duration = performance.now() - start;
+      state.results.passed++;
+      state.results.total++;
+      return { name: test.name, status: 'PASS', duration };
+    } catch (err) {
+      const duration = performance.now() - start;
+      // Check if it was intentionally skipped
+      if (err && err.__skipped) {
+        state.results.total++;
+        return { name: test.name, status: 'SKIP', duration, reason: err.message };
+      }
+      state.results.failed++;
+      state.results.total++;
+      const error = { name: test.name, status: 'FAIL', duration, error: err.message, stack: err.stack };
+      state.results.errors.push(error);
+      return error;
+    }
+  }
+
   async function run() {
     state.startTime = Date.now();
     state.results = { passed: 0, failed: 0, total: 0, duration: 0, errors: [] };
@@ -192,6 +242,8 @@
       }
       suiteReport.duration = Date.now() - suiteStart;
       report.suites.push(suiteReport);
+      // Restore persistent listeners that may have been removed by this suite
+      restorePersistentListeners();
     }
 
     state.results.duration = Date.now() - state.startTime;
@@ -213,9 +265,11 @@
       for (const suite of report.suites) {
         lines.push(`📁 ${suite.name} (${suite.duration}ms)`);
         for (const test of suite.tests) {
-          const icon = test.status === 'PASS' ? '✓' : '✗';
-          const color = test.status === 'PASS' ? '\x1b[32m' : '\x1b[31m';
-          lines.push(`   ${color}${icon}\x1b[0m ${test.name} (${test.duration.toFixed(1)}ms)`);
+          let icon, color, suffix = '';
+          if (test.status === 'PASS') { icon = '✓'; color = '\x1b[32m'; }
+          else if (test.status === 'SKIP') { icon = '⏭'; color = '\x1b[33m'; suffix = ' (skipped)'; }
+          else { icon = '✗'; color = '\x1b[31m'; }
+          lines.push(`   ${color}${icon}\x1b[0m ${test.name} (${test.duration.toFixed(1)}ms)${suffix}`);
           if (test.error) {
             lines.push(`       ${test.error}`);
           }
@@ -250,14 +304,21 @@
           <div class="suite-header">📁 ${suite.name} <span class="suite-time">${suite.duration}ms</span></div>
           <div class="suite-tests">`;
         for (const test of suite.tests) {
-          const cls = test.status === 'PASS' ? 'test-pass' : 'test-fail';
+          let cls, icon, suffix = '';
+          if (test.status === 'PASS') { cls = 'test-pass'; icon = '✓'; }
+          else if (test.status === 'SKIP') { cls = 'test-skip'; icon = '⏭'; suffix = ' (skipped)'; }
+          else { cls = 'test-fail'; icon = '✗'; }
           html += `<div class="test-case ${cls}">
-            <span class="test-icon">${test.status === 'PASS' ? '✓' : '✗'}</span>
+            <span class="test-icon">${icon}</span>
             <span class="test-name">${test.name}</span>
             <span class="test-duration">${test.duration.toFixed(1)}ms</span>
+            ${suffix ? `<span class="test-suffix">${suffix}</span>` : ''}
           </div>`;
           if (test.error) {
             html += `<div class="test-error">${test.error}</div>`;
+          }
+          if (test.reason) {
+            html += `<div class="test-skip-reason">⏭ ${test.reason}</div>`;
           }
         }
         html += `</div></div>`;

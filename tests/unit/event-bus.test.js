@@ -3,7 +3,9 @@
  */
 describe('EventBus', () => {
   beforeEach(() => {
-    if (window.EventBus) window.EventBus.clear();
+    // Don't call EventBus.clear() (no args) - it would remove persistent listeners
+    // like the analytics tracking wired by services/index.js.
+    // Tests should clean up their own listeners via the unsubscribe function returned by on().
   });
 
   it('should be exposed on window', () => {
