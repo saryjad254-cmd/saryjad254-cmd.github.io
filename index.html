@@ -3898,6 +3898,15 @@ function stopCustomerPoolPolling(){
 window.startCustomerPoolPolling = startCustomerPoolPolling;
 window.stopCustomerPoolPolling = stopCustomerPoolPolling;
 
+// === PHASE 1 FIX: Global polling manager — kills ALL timers ===
+function bgStopAllPolling(){
+  try { stopDriverOrderPolling && stopDriverOrderPolling(); } catch(_){}
+  try { stopCustomerPoolPolling && stopCustomerPoolPolling(); } catch(_){}
+  if(window.__bgSyncQueueInterval){ clearInterval(window.__bgSyncQueueInterval); window.__bgSyncQueueInterval = null; }
+  if(window.__bgDriverLocationPolling){ clearInterval(window.__bgDriverLocationPolling); window.__bgDriverLocationPolling = null; }
+}
+window.bgStopAllPolling = bgStopAllPolling;
+
 // Driver-side polling — Wolt-style SMART polling with exponential backoff.
 // Pattern: start fast (3s) on initial pickup, then back off (up to 15s) when idle.
 let __bgDriverPollTimer = null;
@@ -3994,7 +4003,10 @@ function startDriverOrderPolling(){
   __bgDriverPollTimer = setTimeout(tickWithBackoff, 0);
 }
 function stopDriverOrderPolling(){
-  if(__bgDriverPollTimer){ clearInterval(__bgDriverPollTimer); __bgDriverPollTimer = null; }
+  if(__bgDriverPollTimer){ clearTimeout(__bgDriverPollTimer); clearInterval(__bgDriverPollTimer); __bgDriverPollTimer = null; }
+  // === PHASE 1 FIX: Reset backoff state ===
+  __bgDriverFirstPollDone = false;
+  __bgDriverPollDelay = __BG_DRIVER_POLL_MIN;
 }
 function saveSharedNotifications(){
   localStorage.setItem('bg_shared_notifs', JSON.stringify(state.notifications));
@@ -4043,6 +4055,21 @@ function showMsg(id, type, text){
 //   bgCustomConfirm(msg, opts)  -> Promise<boolean>
 //   bgCustomPrompt(msg, def, opts) -> Promise<string|null>  (null = cancelled)
 //   bgCustomAlert(msg, opts)    -> Promise<void>
+// Inject keyframes once (no-op if already present)
+
+// === PHASE 4 FIX: Phone call helper ===
+function bgCallPhone(phone){
+  if(!phone){ showToast(CURRENT_LANG==='ar'?'رقم غير متاح':'Nummer nicht verfügbar', 'warning'); return; }
+  const clean = String(phone).replace(/[^\d+]/g, '');
+  if(!clean){ showToast(CURRENT_LANG==='ar'?'رقم غير صالح':'Ungültige Nummer', 'error'); return; }
+  try {
+    window.location.href = 'tel:' + clean;
+  } catch(e){
+    try { navigator.clipboard.writeText(clean); showToast(CURRENT_LANG==='ar'?'📋 تم نسخ الرقم':'📋 Nummer kopiert', 'success'); } catch(_){}
+  }
+  bgHaptic && bgHaptic([15]);
+}
+window.bgCallPhone = bgCallPhone;
 // Inject keyframes once (no-op if already present)
 (function bgInjectModalAnimations(){
   if(document.getElementById('bgModalAnimStyles')) return;
@@ -6667,15 +6694,31 @@ function doLogout(){
   try {
     try { saveSharedOrders(); } catch(_){}
     try { saveSharedNotifications(); } catch(_){}
+    // === PHASE 1 FIX: Stop ALL polling timers + subscriptions ===
     try { stopDriverOrderPolling && stopDriverOrderPolling(); } catch(_){}
+    try { stopCustomerPoolPolling && stopCustomerPoolPolling(); } catch(_){}
+    if(window.__bgSyncQueueInterval){ clearInterval(window.__bgSyncQueueInterval); window.__bgSyncQueueInterval = null; }
+    if(window.__bgDriverLocationPolling){ clearInterval(window.__bgDriverLocationPolling); window.__bgDriverLocationPolling = null; }
     try { window._driverOrdersUnsub && window._driverOrdersUnsub(); } catch(_){}
     try { window._customerOrdersUnsub && window._customerOrdersUnsub(); } catch(_){}
     try { window._adminOrdersUnsub && window._adminOrdersUnsub(); } catch(_){}
+    // === PHASE 1 FIX: Stop GPS watch if active ===
+    try { if(window.__bgDriverMyWatchId && navigator.geolocation){ navigator.geolocation.clearWatch(window.__bgDriverMyWatchId); window.__bgDriverMyWatchId = null; } } catch(_){}
+    // === PHASE 1 FIX: Destroy map instances to prevent DOM accumulation ===
+    try { if(window.__bgGoogleMapInstance && window.google && google.maps){ /* GC will collect on page change */ window.__bgGoogleMapInstance = null; } } catch(_){}
+    try { window.__bgGoogleMapMarkers = null; window.__bgGoogleMapPolyline = null; } catch(_){}
   } catch(_){}
   // Clear local user data
   try { localStorage.removeItem('bg_user'); } catch(_){}
+  try { localStorage.removeItem('bg_pending_sync'); } catch(_){}
+  try { localStorage.removeItem('bg_track_'); } catch(_){}
   try { state.user = null; } catch(_){}
   try { state.driverActiveOrder = null; } catch(_){}
+  try { state.driverOnline = false; } catch(_){}
+  try { state.trackingOrderId = null; } catch(_){}
+  try { state.orders = []; } catch(_){}
+  try { state.notifications = []; } catch(_){}
+  try { state.cart = []; } catch(_){}
   // Hide app, show auth
   try {
     var app = document.getElementById('app');
@@ -9686,7 +9729,7 @@ function renderCustomerTrack(){
                 <span>${driver.plate||'BLG-1234'}</span>
               </div>
             </div>
-            <button class="wolt-action-btn" onclick="showToast(CURRENT_LANG==='ar'?'📞 جاري الاتصال …':'📞 Anrufen …')" title="${CURRENT_LANG==='ar'?'اتصال':'Anrufen'}" style="background:#00C853;border-color:#00C853">
+            <button class="wolt-action-btn" onclick="bgCallPhone('${escJs(driver.phone||'')}')" title="${CURRENT_LANG==='ar'?'اتصال':'Anrufen'}" style="background:#00C853;border-color:#00C853">
               <i class="fas fa-phone"></i>
             </button>
             <button class="wolt-action-btn" onclick="openChat('${escJs(_localized(driver,'name')||'Fahrer')}','driver')" title="${CURRENT_LANG==='ar'?'دردشة':'Chat'}" style="background:#009DE0;border-color:#009DE0">
@@ -10006,7 +10049,7 @@ function renderDriverOrderDetail(o, isActive){
       </div>
       <!-- Common actions, always available -->
       <div style="margin-top:14px;padding-top:14px;border-top:1px dashed var(--border);display:grid;grid-template-columns:1fr 1fr;gap:8px">
-        <button class="btn btn-info" data-action="call" onclick="showToast('📞 '+(${o.customerPhone?JSON.stringify(o.customerPhone):(CURRENT_LANG==='ar'?'—':'—')}))"><i class="fas fa-phone"></i> ${CURRENT_LANG==='ar'?'اتصال':'Anrufen'}</button>
+        <button class="btn btn-info" data-action="call" onclick="${o.customerPhone ? `bgCallPhone('${escJs(o.customerPhone)}')` : `showToast('${CURRENT_LANG==='ar'?'لا يوجد رقم هاتف':'Keine Telefonnummer'}', 'warning')`}"><i class="fas fa-phone"></i> ${CURRENT_LANG==='ar'?'اتصال':'Anrufen'}</button>
         <button class="btn btn-purple" onclick="openChat('${escJs(o.customerName||(CURRENT_LANG==='ar'?'عميل':'Kunde'))}','customer')"><i class="fas fa-comments"></i> ${CURRENT_LANG==='ar'?'دردشة':'Chat'}</button>
         <button class="btn btn-secondary" onclick="driverUpdateLocation('${escId(o.id)}')" style="grid-column:1/-1;font-size:12px;padding:8px"><i class="fas fa-location-arrow"></i> ${CURRENT_LANG==='ar'?'تحديث موقعي للزبون':'Meinen Standort senden'}</button>
         <button class="btn" onclick="bgShareDriverLocation()" id="bgShareLocBtn" style="grid-column:1/-1;font-size:12px;padding:8px;background:linear-gradient(135deg,#00C853,#00E676);color:#fff;border:none;font-weight:800">
@@ -12250,9 +12293,20 @@ function closeIncomingCall(accepted, orderId){
 window.closeIncomingCall = closeIncomingCall;
 window.acceptOrder = acceptOrder;
 
+// === PHASE 1 FIX: Race condition guard — prevent double-accept ===
+let __bgAcceptInProgress = new Set();
 function acceptOrder(orderId, btn){
   // BULLETPROOF accept - no async chains, no complex logic, instant update
   console.log('[BlinkGo] acceptOrder called', orderId);
+  // === GUARD: prevent concurrent accepts ===
+  const oid = String(orderId);
+  if(__bgAcceptInProgress.has(oid)){
+    console.warn('[BlinkGo] Already accepting', oid);
+    return;
+  }
+  __bgAcceptInProgress.add(oid);
+  // Auto-clear guard after 5 seconds (in case of error)
+  setTimeout(() => __bgAcceptInProgress.delete(oid), 5000);
   // 1. INSTANT button feedback (no setTimeout, no async)
   const doBtn = btn && btn.tagName === 'BUTTON' ? btn : (document.querySelector('button[onclick*="acceptOrder"]') || document.querySelector('[data-accept-id="' + orderId + '"]'));
   if(doBtn){
@@ -17578,4 +17632,3 @@ document.addEventListener('click', (e) => {
 </script>
 </body>
 </html>
-
