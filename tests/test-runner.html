@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>BlinkGo — Test Runner</title>
+<style>
+:root {
+  --bg: #0a0a0f;
+  --bg-elevated: #14141e;
+  --text: #e8eef4;
+  --text-muted: #8a96a8;
+  --border: rgba(255,255,255,0.08);
+  --success: #00C853;
+  --danger: #E53935;
+  --warning: #FFB300;
+  --primary: #FF6B00;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: 'SF Mono', Menlo, Monaco, 'Courier New', monospace;
+  background: var(--bg);
+  color: var(--text);
+  padding: 24px;
+  min-height: 100vh;
+}
+.container { max-width: 980px; margin: 0 auto; }
+header {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 32px; padding-bottom: 16px;
+  border-bottom: 1px solid var(--border);
+}
+h1 { font-size: 22px; color: var(--primary); }
+.actions { display: flex; gap: 10px; }
+button {
+  padding: 10px 18px; background: var(--primary); color: #fff;
+  border: none; border-radius: 8px; font-weight: 700; cursor: pointer;
+  font-family: inherit; font-size: 13px;
+}
+button.alt { background: #2979FF; }
+button:hover { filter: brightness(1.1); }
+button:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.test-report { margin-top: 24px; }
+.test-summary {
+  display: flex; align-items: center; gap: 24px;
+  padding: 24px; background: var(--bg-elevated);
+  border-radius: 12px; margin-bottom: 16px;
+  border: 2px solid var(--border);
+}
+.test-summary.all-pass { border-color: var(--success); }
+.test-summary.has-fail { border-color: var(--danger); }
+.summary-num { font-size: 48px; font-weight: 800; }
+.test-summary.all-pass .summary-num { color: var(--success); }
+.test-summary.has-fail .summary-num { color: var(--danger); }
+.summary-detail { flex: 1; font-size: 16px; }
+.summary-time { color: var(--text-muted); font-size: 13px; }
+.fail-count { color: var(--danger); font-weight: 700; }
+
+.test-suite {
+  background: var(--bg-elevated);
+  border-radius: 10px;
+  margin-bottom: 10px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+}
+.suite-header {
+  padding: 12px 16px;
+  background: rgba(255,107,0,0.08);
+  font-weight: 700;
+  display: flex; justify-content: space-between; align-items: center;
+}
+.suite-time { color: var(--text-muted); font-weight: 400; font-size: 12px; }
+.suite-tests { padding: 4px 0; }
+.test-case {
+  display: flex; align-items: center; gap: 12px;
+  padding: 10px 16px; font-size: 13px;
+  border-top: 1px solid rgba(255,255,255,0.03);
+}
+.test-case.test-pass .test-icon { color: var(--success); }
+.test-case.test-fail .test-icon { color: var(--danger); }
+.test-case.test-fail { background: rgba(229,57,53,0.05); }
+.test-icon { font-size: 14px; font-weight: 800; width: 20px; }
+.test-name { flex: 1; }
+.test-duration { color: var(--text-muted); font-size: 11px; }
+.test-error {
+  padding: 8px 16px 8px 48px;
+  background: rgba(229,57,53,0.1);
+  color: #FF8A80;
+  font-size: 12px;
+  font-family: inherit;
+  border-top: 1px solid rgba(229,57,53,0.2);
+}
+
+.running { padding: 60px; text-align: center; color: var(--text-muted); }
+.spinner {
+  width: 40px; height: 40px;
+  border: 3px solid rgba(255,107,0,0.2);
+  border-top-color: var(--primary);
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+  margin: 0 auto 16px;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+footer {
+  margin-top: 32px; padding-top: 16px;
+  border-top: 1px solid var(--border);
+  color: var(--text-muted); font-size: 12px;
+  text-align: center;
+}
+</style>
+</head>
+<body>
+<div class="container">
+  <header>
+    <h1>🧪 BlinkGo Test Runner</h1>
+    <div class="actions">
+      <button onclick="runAllTests()" id="runBtn">▶ Run All Tests</button>
+      <button class="alt" onclick="exportResults()">📥 Export JSON</button>
+    </div>
+  </header>
+
+  <div id="status" class="running">
+    <div class="spinner"></div>
+    <div>Loading services & tests...</div>
+  </div>
+
+  <div id="report"></div>
+
+  <footer>
+    BlinkGo v5.1 — Test Runner &middot; <span id="footer-info">Powered by TestRunner framework</span>
+  </footer>
+</div>
+
+<!-- Services -->
+<script src="../js/services/config.js"></script>
+<script src="../js/services/logger.js"></script>
+<script src="../js/services/error.js"></script>
+<script src="../js/services/event-bus.js"></script>
+<script src="../js/services/repository.js"></script>
+<script src="../js/services/map-service.js"></script>
+<script src="../js/services/analytics.js"></script>
+<script src="../js/services/index.js"></script>
+
+<!-- Test Framework -->
+<script src="./test-runner.js"></script>
+
+<!-- Tests -->
+<script src="./unit/config.test.js"></script>
+<script src="./unit/logger.test.js"></script>
+<script src="./unit/error.test.js"></script>
+<script src="./unit/event-bus.test.js"></script>
+<script src="./unit/repository.test.js"></script>
+<script src="./unit/analytics.test.js"></script>
+<script src="./integration/order-flow.test.js"></script>
+
+<script>
+// === Test Runner Page Logic ===
+let lastReport = null;
+
+function runAllTests() {
+  document.getElementById('runBtn').disabled = true;
+  document.getElementById('status').innerHTML = `
+    <div class="spinner"></div>
+    <div>Running tests...</div>
+  `;
+  document.getElementById('report').innerHTML = '';
+
+  // Run async to allow UI to update
+  setTimeout(async () => {
+    try {
+      const report = await TestRunner.run();
+      lastReport = report;
+      renderReport(report);
+    } catch (err) {
+      document.getElementById('status').innerHTML = `
+        <div style="color: var(--danger)">❌ Test runner crashed: ${err.message}</div>
+      `;
+      console.error(err);
+    }
+    document.getElementById('runBtn').disabled = false;
+  }, 50);
+}
+
+function renderReport(report) {
+  const status = document.getElementById('status');
+  status.innerHTML = '';
+  document.getElementById('report').innerHTML = TestRunner.Reporter.html(report);
+}
+
+function exportResults() {
+  if (!lastReport) {
+    alert('Run tests first!');
+    return;
+  }
+  const json = TestRunner.Reporter.json(lastReport);
+  const blob = new Blob([json], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `blinkgo-test-results-${Date.now()}.json`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+// Auto-run on load (after services loaded)
+window.addEventListener('load', () => {
+  // Verify services loaded
+  if (!window.BlinkGo) {
+    document.getElementById('status').innerHTML = `
+      <div style="color: var(--danger)">❌ Services failed to load. Check console.</div>
+    `;
+    return;
+  }
+  document.getElementById('status').innerHTML = `
+    <div style="color: var(--success); font-size: 18px;">
+      ✓ ${Object.keys(window.BlinkGo).length} services loaded
+    </div>
+    <div style="margin-top: 12px; color: var(--text-muted);">
+      ${TestRunner.state.suites.length} test suites registered. Click "Run All Tests" to start.
+    </div>
+  `;
+});
+</script>
+</body>
+</html>
