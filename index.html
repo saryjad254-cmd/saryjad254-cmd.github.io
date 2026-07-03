@@ -9847,10 +9847,11 @@ function renderCustomerTrack(){
    DRIVER PAGES
 ============================================================ */
 function renderDriverFeed(){
-  // Show pending orders regardless of online status (Wolt/Uber Eats pattern).
-  // Only the "incoming call" notification depends on online state.
+  // Only show orders if driver is online. If offline, only show the toggle banner.
   const online = !!state.driverOnline;
-  const newOrders = state.orders.filter(o => o.status==='pending' && !o.driverId);
+  const newOrders = online 
+    ? state.orders.filter(o => o.status==='pending' && !o.driverId)
+    : [];
   return `
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;flex-wrap:wrap;gap:10px">
       <div>
