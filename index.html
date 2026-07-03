@@ -1983,6 +1983,8 @@ window.bgShowNotification = function(title, body, opts){
 <script src="./js/services/repository.js"></script>
 <script src="./js/services/map-service.js"></script>
 <script src="./js/services/analytics.js"></script>
+<script src="./js/services/driver-prefs.js"></script>
+<script src="./js/components/driver-settings.js"></script>
 <script src="./js/services/index.js"></script>
 
    INTERNATIONALIZATION (i18n)
@@ -4081,6 +4083,47 @@ function bgCallPhone(phone){
 }
 window.bgCallPhone = bgCallPhone;
 
+// === Open navigation to a coordinate using the driver's preferred map app ===
+function bgOpenNavigation(lat, lng, addressLabel){
+  if((lat==null || isNaN(lat) || lat===0) && addressLabel){
+    // Geocode address first
+    if(typeof bgGeocodeAddress === 'function'){
+      showToast(CURRENT_LANG==='ar'?'⏳ جاري البحث عن العنوان...':'⏳ Adresse wird gesucht...','info');
+      bgGeocodeAddress(addressLabel).then(result => {
+        if(result){
+          bgOpenNavigation(result.lat, result.lng, addressLabel);
+        } else {
+          // Fallback to web search
+          const query = encodeURIComponent(addressLabel);
+          window.open(`https://www.google.com/maps/search/?api=1&query=${query}`, '_blank', 'noopener');
+        }
+      }).catch(() => {
+        const query = encodeURIComponent(addressLabel);
+        window.open(`https://www.google.com/maps/search/?api=1&query=${query}`, '_blank', 'noopener');
+      });
+      return;
+    }
+  }
+  if(lat==null || isNaN(lat)){
+    showToast(CURRENT_LANG==='ar'?'❌ لا يوجد موقع':'❌ Kein Standort','error');
+    return;
+  }
+  // Use the driver's preferred map app
+  if(window.BlinkGo?.DriverPrefs?.openNavigation){
+    const ok = window.BlinkGo.DriverPrefs.openNavigation(lat, lng);
+    if(ok){
+      bgHaptic && bgHaptic([15]);
+    } else {
+      // Fallback to web
+      window.open(`https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}`, '_blank', 'noopener');
+    }
+  } else {
+    // No preferences service loaded — fallback
+    window.open(`https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}`, '_blank', 'noopener');
+  }
+}
+window.bgOpenNavigation = bgOpenNavigation;
+
 // === PHASE 6: Browser geolocation watcher (customer-side) ===
 // Watches the browser's geolocation and stores it for map usage.
 window.__bgLastBrowserLocation = null;
@@ -4643,6 +4686,251 @@ const ordersRepository = new OrdersRepository({
 });
 window.OrdersRepository = OrdersRepository;
 window.ordersRepository = ordersRepository;
+
+// === DRIVER PREFS MODULE (inline fallback) ===
+// Loaded as ./js/services/driver-prefs.js; inlined here for robustness
+// when served from CDN/cache where module path is missing.
+(function(){
+  'use strict';
+  if (window.BlinkGo && window.BlinkGo.DriverPrefs) return; // already loaded
+  const STORAGE_KEY = 'bg_driver_prefs_v1';
+  const DEFAULTS = {
+    mapApp: 'google',
+    transport: 'bike',
+    theme: 'device',
+    animations: true,
+    soundMode: 'long',
+    soundVolume: 0.85,
+    rating: null,
+    privacy: { analyticsEnabled: true }
+  };
+  const MAP_APPS = {
+    google: { id: 'google', name: { ar: 'خرائط جوجل', de: 'Google Maps' }, icon: 'fab fa-google', deepLink: (lat, lng) => `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}&travelmode=driving`, appleScheme: 'comgooglemaps://?daddr=${lat},${lng}&directionsmode=driving', color: '#4285F4' },
+    waze:   { id: 'waze',   name: { ar: 'وايز', de: 'WAZE' }, icon: 'fab fa-waze', deepLink: (lat, lng) => `https://waze.com/ul?ll=${lat},${lng}&navigate=yes`, appleScheme: 'waze://?ll=${lat},${lng}&navigate=yes', color: '#33CCFF' },
+    here:   { id: 'here',   name: { ar: 'HERE WeGo', de: 'HERE WeGo' }, icon: 'fas fa-map-marked-alt', deepLink: (lat, lng) => `https://share.here.com/r/${lat},${lng}`, appleScheme: 'here-route://${lat},${lng}', color: '#48DAD0' },
+    yandex: { id: 'yandex', name: { ar: 'Yandex Maps', de: 'Yandex Maps' }, icon: 'fas fa-map-pin', deepLink: (lat, lng) => `https://yandex.com/maps/?rtext=~${lat},${lng}&rtt=auto`, appleScheme: 'yandexmaps://?rtext=~${lat},${lng}&rtt=auto', color: '#FFCC00' },
+    '2gis': { id: '2gis',   name: { ar: '2GIS', de: '2GIS' }, icon: 'fas fa-map-signs', deepLink: (lat, lng) => `https://2gis.com/directions/points/${lat}%2C${lng}`, appleScheme: 'dgis://2gis.ru/routeSearch/to/${lng},${lat}', color: '#4AB84A' },
+    apple:  { id: 'apple',  name: { ar: 'خرائط آبل', de: 'Apple Maps' }, icon: 'fab fa-apple', deepLink: (lat, lng) => `https://maps.apple.com/?daddr=${lat},${lng}&dirflg=d`, appleScheme: 'maps://?daddr=${lat},${lng}&dirflg=d', color: '#A3AAAE' }
+  };
+  const TRANSPORT_MODES = {
+    car:  { id: 'car',  name: { ar: 'سيارة/دراجة نارية', de: 'Auto/Motorrad' }, icon: 'fas fa-car',    speedKmh: 30, color: '#009DE0' },
+    bike: { id: 'bike', name: { ar: 'دراجة هوائية', de: 'Fahrrad' },           icon: 'fas fa-bicycle', speedKmh: 15, color: '#00C853' },
+    walk: { id: 'walk', name: { ar: 'مشياً على الأقدام', de: 'Zu Fuß' },        icon: 'fas fa-walking', speedKmh: 5,  color: '#FFA726' }
+  };
+  const SOUND_MODES = {
+    short:      { id: 'short',      name: { ar: 'قصيرة', de: 'Kurz' },          description: { ar: 'تشغيل قصير عند استلام طلبية', de: 'Kurzer Ton' }, pattern: [200,100,200,100,400] },
+    long:       { id: 'long',       name: { ar: 'طويلة', de: 'Lang' },           description: { ar: 'تشغيل أطول وأوضح', de: 'Längerer Ton' }, pattern: [300,150,300,150,600,150,300] },
+    continuous: { id: 'continuous', name: { ar: 'مستمرة', de: 'Durchgehend' },   description: { ar: 'نغمة تنبيه مستمرة حتى الموافقة على الطلبية', de: 'Durchgehend bis Annahme' }, pattern: [500,200,500,200,500] },
+    once:       { id: 'once',       name: { ar: 'مرة واحدة', de: 'Einmalig' },   description: { ar: 'تشغيل نغمة التنبيه مرة واحدة فقط', de: 'Nur einmal' }, pattern: [600,100,800] }
+  };
+  function load(){ try { return { ...DEFAULTS, ...(JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}')) }; } catch(_) { return { ...DEFAULTS }; } }
+  function save(p){ try { localStorage.setItem(STORAGE_KEY, JSON.stringify(p)); return true; } catch(_) { return false; } }
+  function get(){ return load(); }
+  function set(k, v){ const p = load(); p[k] = v; save(p); applyAuto(k, v); return p; }
+  function applyAuto(k, v){
+    if (k === 'theme'){
+      const r = document.documentElement;
+      if (v === 'dark') r.setAttribute('data-bg-theme','dark');
+      else if (v === 'light') r.setAttribute('data-bg-theme','light');
+      else r.removeAttribute('data-bg-theme');
+    } else if (k === 'animations'){
+      document.documentElement.classList.toggle('bg-no-animations', !v);
+    }
+  }
+  function openNavigation(lat, lng){
+    const app = MAP_APPS[get().mapApp] || MAP_APPS.google;
+    const url = app.deepLink(lat, lng);
+    try { window.open(url, '_blank', 'noopener'); return true; } catch(_) { return false; }
+  }
+  // Sound playback (Web Audio API)
+  let _ctx = null;
+  function playNotificationSound(){
+    const prefs = get();
+    const mode = SOUND_MODES[prefs.soundMode] || SOUND_MODES.long;
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return () => {};
+    if (!_ctx) _ctx = new AC();
+    const ctx = _ctx;
+    if (ctx.state === 'suspended') ctx.resume();
+    let t = ctx.currentTime;
+    const oscs = [];
+    mode.pattern.forEach((dur) => {
+      const o = ctx.createOscillator();
+      const g = ctx.createGain();
+      o.type = 'sine';
+      o.frequency.setValueAtTime(660, t);
+      g.gain.setValueAtTime(0, t);
+      g.gain.linearRampToValueAtTime((prefs.soundVolume||0.5)*0.3, t + 0.02);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + dur/1000 - 0.05);
+      o.connect(g).connect(ctx.destination);
+      o.start(t);
+      o.stop(t + dur/1000);
+      oscs.push(o);
+      t += dur/1000;
+    });
+    return () => oscs.forEach(o => { try{o.stop();}catch(_){} });
+  }
+  if (!window.BlinkGo) window.BlinkGo = {};
+  window.BlinkGo.DriverPrefs = { DEFAULTS, MAP_APPS, TRANSPORT_MODES, SOUND_MODES, get, set, openNavigation, playNotificationSound };
+  // Init on load
+  (function init(){
+    const p = get();
+    applyAuto('theme', p.theme);
+    applyAuto('animations', p.animations);
+  })();
+})();
+
+// === DRIVER SETTINGS PAGES (inline fallback) ===
+(function(){
+  'use strict';
+  if (window.BlinkGo && window.BlinkGo.DriverSettings) return;
+  const DP = window.BlinkGo && window.BlinkGo.DriverPrefs;
+  if (!DP) { console.warn('[driver-settings] DriverPrefs not loaded'); return; }
+  function L(ar, de){ return (typeof CURRENT_LANG !== 'undefined' && CURRENT_LANG === 'ar') ? ar : de; }
+  function backBar(title){
+    const arrow = (typeof CURRENT_LANG !== 'undefined' && CURRENT_LANG === 'ar') ? 'left' : 'right';
+    return `<div class="page-back-bar"><button class="back-btn" onclick="setActivePage('driver-profile')"><i class="fas fa-arrow-${arrow}"></i></button><div class="section-title">${title}</div><div style="width:38px"></div></div>`;
+  }
+  function renderMapAppPage(){
+    const prefs = DP.get();
+    const rows = Object.values(DP.MAP_APPS).map(app => {
+      const sel = prefs.mapApp === app.id;
+      return `<div class="map-app-row ${sel?'selected':''}" onclick="bgSetMapApp('${app.id}')">
+        <div class="map-app-icon" style="background:${app.color}15;color:${app.color}"><i class="${app.icon}"></i></div>
+        <div class="map-app-name">${app.name.ar} <span style="opacity:.6">(${app.name.de})</span></div>
+        ${sel?'<i class="fas fa-check" style="color:var(--secondary);font-size:18px"></i>':''}
+      </div>`;
+    }).join('');
+    return `${backBar(L('تطبيق الخرائط','Karten-App'))}<div class="page-content">
+      <div class="settings-header"><div class="settings-title">${L('تطبيق الخرائط (GPS)','Karten-App (GPS)')}</div><div class="settings-subtitle">${L('اختر التطبيق الذي تريد استخدامه للملاحة','Wählen Sie die App, die Sie für die Navigation verwenden möchten')}</div></div>
+      <div class="settings-section"><div class="settings-list">${rows}</div></div></div>`;
+  }
+  function renderTransportPage(){
+    const prefs = DP.get();
+    const rows = Object.values(DP.TRANSPORT_MODES).map(m => {
+      const sel = prefs.transport === m.id;
+      return `<div class="transport-row ${sel?'selected':''}" onclick="bgSetTransport('${m.id}')">
+        <div class="transport-icon" style="background:${m.color}15;color:${m.color}"><i class="${m.icon}"></i></div>
+        <div class="transport-info"><div class="transport-name">${m.name.ar} <span style="opacity:.6">(${m.name.de})</span></div><div class="transport-sub">${L('متوسط السرعة: ','Ø ')}${m.speedKmh} ${L('كم/ساعة','km/h')}</div></div>
+        ${sel?'<i class="fas fa-check" style="color:var(--secondary);font-size:18px"></i>':''}
+      </div>`;
+    }).join('');
+    return `${backBar(L('وسيلة النقل','Transportmittel'))}<div class="page-content">
+      <div class="settings-header"><div class="settings-title">${L('وسيلة النقل','Transportmittel')}</div><div class="settings-subtitle">${L('اختر وسيلة النقل الخاصة بك','Wählen Sie Ihr Transportmittel')}</div></div>
+      <div class="settings-section"><div class="settings-list">${rows}</div></div></div>`;
+  }
+  function renderThemePage(){
+    const prefs = DP.get();
+    const themes = [
+      { id: 'device', name: L('استخدام مظهر الجهاز','Gerätethema verwenden'), icon: 'fas fa-mobile-alt' },
+      { id: 'light',  name: L('فاتح','Hell'), icon: 'fas fa-sun' },
+      { id: 'dark',   name: L('داكن','Dunkel'), icon: 'fas fa-moon' }
+    ];
+    const themeRows = themes.map(t => {
+      const sel = prefs.theme === t.id;
+      return `<div class="theme-row ${sel?'selected':''}" onclick="bgSetTheme('${t.id}')">
+        <div class="theme-icon"><i class="${t.icon}"></i></div>
+        <div class="theme-name">${t.name}</div>
+        ${sel?'<i class="fas fa-check" style="color:var(--secondary);font-size:18px"></i>':''}
+      </div>`;
+    }).join('');
+    return `${backBar(L('العرض والغمات','Anzeige & Design'))}<div class="page-content">
+      <div class="settings-header"><div class="settings-title">${L('العرض والغمات','Anzeige & Design')}</div><div class="settings-subtitle">${L('اختر طريقة عرض التطبيق','Wählen Sie die Anzeigeart der App')}</div></div>
+      <div class="settings-section"><div class="settings-section-title">${L('المظهر','Design')}</div><div class="settings-list">${themeRows}</div></div>
+      <div class="settings-section"><div class="settings-section-title">${L('الرسوم المتحركة','Animationen')}</div><div class="settings-list">
+        <div class="settings-row" style="cursor:default">
+          <div class="settings-row-icon"><i class="fas fa-magic"></i></div>
+          <div class="settings-row-content">
+            <div class="settings-row-label">${L('تقليل الرسوم المتحركة','Animationen reduzieren')}</div>
+            <div class="settings-row-value">${L('تعطيل الرسوم المتحركة للشريحة السفلية','Animationen für das untere Blatt deaktivieren')}</div>
+          </div>
+          <label class="bg-switch"><input type="checkbox" id="bgAnimationsToggle" ${!prefs.animations?'checked':''} onchange="bgSetAnimations(!this.checked)"><span class="bg-switch-slider"></span></label>
+        </div>
+      </div></div></div>`;
+  }
+  function renderSoundPage(){
+    const prefs = DP.get();
+    const rows = Object.values(DP.SOUND_MODES).map(m => {
+      const sel = prefs.soundMode === m.id;
+      return `<div class="sound-row ${sel?'selected':''}">
+        <div class="sound-info" onclick="bgSetSoundMode('${m.id}')">
+          <div class="sound-name">${m.name.ar} <span style="opacity:.6;font-size:13px">(${m.name.de})</span></div>
+          <div class="sound-desc">${m.description.ar}</div>
+        </div>
+        <button class="sound-play-btn" onclick="event.stopPropagation();bgPreviewSound('${m.id}')" title="${L('تشغيل','Anhören')}"><i class="fas fa-play"></i></button>
+        ${sel?'<i class="fas fa-check sound-check"></i>':'<div style="width:18px"></div>'}
+      </div>`;
+    }).join('');
+    return `${backBar(L('نغمة التنبيه للطلب','Benachrichtigungston für Bestellung'))}<div class="page-content">
+      <div class="settings-header"><div class="settings-title">${L('نغمة التنبيه للطلب','Benachrichtigungston für Bestellung')}</div><div class="settings-subtitle">${L('اختر نغمة التنبيه للطلبيات الجديدة','Wählen Sie den Benachrichtigungston für neue Bestellungen')}</div></div>
+      <div class="settings-section"><div class="settings-section-title">${L('نمط الصوت','Ton-Modus')}</div><div class="settings-list">${rows}</div></div></div>`;
+  }
+  function renderRatePage(){
+    let draft = {};
+    try { draft = JSON.parse(sessionStorage.getItem('bg_driver_rating_draft') || '{}'); } catch(_) {}
+    const questions = [
+      { id: 'performance', title: L('أداء التطبيق','App-Leistung'), sub: L('ما رأيك في التطبيق؟','Was halten Sie von der App?') },
+      { id: 'business',    title: L('المصالح التجارية','Geschäftliche Interessen'), sub: L('كيف كانت تجربتك استلام الطلبيات من المحلات التجارية؟','Wie war Ihre Erfahrung?') },
+      { id: 'support',     title: L('خدمة الزبائن الخاصة بـ Wolt','Wolt-Kundenservice'), sub: L('هل كان كل شيء على ما يرام مع طاقم الدعم الخاص بـ Wolt؟','War alles in Ordnung mit dem Wolt-Support-Team?') }
+    ];
+    const qb = questions.map(q => {
+      const cur = draft[q.id] || 0;
+      const stars = [1,2,3,4,5].map(n => `<i class="fas fa-star ${n<=cur?'star-filled':'star-empty'}" onclick="bgSetRating('${q.id}',${n})" style="cursor:pointer;font-size:28px;padding:4px"></i>`).join('');
+      return `<div class="rate-question"><div class="rate-q-title">${q.title}</div><div class="rate-q-sub">${q.sub}</div><div class="rate-stars" id="rate-stars-${q.id}">${stars}</div></div>`;
+    }).join('');
+    return `${backBar(L('تقييم','Bewertung'))}<div class="page-content">
+      <div class="settings-header"><div class="settings-title">${L('ساعدنا على تحسين خدمتنا','Helfen Sie uns, unseren Service zu verbessern')}</div><div class="settings-subtitle">${L('رأيك يهمنا','Ihre Meinung ist uns wichtig')}</div></div>
+      <div class="settings-section"><div class="settings-list">${qb}</div></div>
+      <div class="settings-section"><div class="settings-section-title">${L('تعليق إضافي','Zusätzlicher Kommentar')}</div><div class="settings-list"><div style="padding:14px">
+        <textarea id="bgRatingComment" placeholder="${L('اكتب تعليقك هنا...','Schreiben Sie hier Ihren Kommentar...')}" rows="4" style="width:100%;background:rgba(255,255,255,0.05);color:var(--text);border:1px solid var(--border);border-radius:8px;padding:10px;font-size:14px;resize:vertical">${(draft.comment||'').replace(/</g,'&lt;')}</textarea>
+      </div></div></div>
+      <div style="padding:0 16px 30px;display:flex;flex-direction:column;gap:10px">
+        <button class="btn btn-primary" onclick="bgAddComment()"><i class="fas fa-plus"></i> ${L('إضافة تعليق','Kommentar hinzufügen')}</button>
+        <button class="btn btn-info" onclick="bgSubmitRating()"><i class="fas fa-paper-plane"></i> ${L('إرسال التقييم','Bewertung absenden')}</button>
+      </div></div>`;
+  }
+  function renderAccountPage(){
+    return `${backBar(L('الحساب','Konto'))}<div class="page-content">
+      <div class="settings-section"><div class="settings-list">
+        <div class="settings-row" onclick="confirmLogout()" style="cursor:pointer">
+          <div class="settings-row-icon" style="color:var(--danger)"><i class="fas fa-sign-out-alt"></i></div>
+          <div class="settings-row-content"><div class="settings-row-label" style="color:var(--danger);font-weight:800">${L('تسجيل الخروج','Abmelden')}</div></div>
+          <i class="fas fa-chevron-left settings-row-arrow"></i>
+        </div>
+        <div class="settings-row" onclick="bgShowPrivacy('hr')">
+          <div class="settings-row-icon"><i class="fas fa-shield-alt"></i></div>
+          <div class="settings-row-content"><div class="settings-row-label">${L('سياسة خصوصية قسم الموارد البشرية','Datenschutz für den Personalbereich')}</div></div>
+          <i class="fas fa-chevron-left settings-row-arrow"></i>
+        </div>
+        <div class="settings-row" onclick="bgShowPrivacy('employment')">
+          <div class="settings-row-icon"><i class="fas fa-briefcase"></i></div>
+          <div class="settings-row-content"><div class="settings-row-label">${L('سياسة خصوصية التوظيف','Datenschutz für die Einstellung')}</div></div>
+          <i class="fas fa-chevron-left settings-row-arrow"></i>
+        </div>
+      </div></div></div>`;
+  }
+  // Action handlers (global)
+  window.bgSetMapApp = (id) => { if (!DP.MAP_APPS[id]) return; DP.set('mapApp', id); if (typeof showToast==='function') showToast(L('✅ تم اختيار التطبيق','✅ App ausgewählt'),'success'); if (typeof bgHaptic==='function') bgHaptic([15]); if (typeof setActivePage==='function') setActivePage('driver-settings-map'); };
+  window.bgSetTransport = (id) => { if (!DP.TRANSPORT_MODES[id]) return; DP.set('transport', id); if (typeof showToast==='function') showToast(L('✅ تم تحديث وسيلة النقل','✅ Transport aktualisiert'),'success'); if (typeof bgHaptic==='function') bgHaptic([15]); if (typeof setActivePage==='function') setActivePage('driver-settings-transport'); };
+  window.bgSetTheme = (id) => { if (!['device','light','dark'].includes(id)) return; DP.set('theme', id); if (typeof bgHaptic==='function') bgHaptic([10]); if (typeof setActivePage==='function') setActivePage('driver-settings-theme'); };
+  window.bgSetAnimations = (enabled) => { DP.set('animations', enabled); if (typeof showToast==='function') showToast(enabled?L('✅ تم تشغيل الرسوم','✅ Animationen an'):L('✅ تم تعطيل الرسوم','✅ Animationen aus'),'success'); };
+  window.bgSetSoundMode = (id) => { if (!DP.SOUND_MODES[id]) return; DP.set('soundMode', id); bgPreviewSound(id); if (typeof showToast==='function') showToast(L('✅ تم تغيير نغمة التنبيه','✅ Ton geändert'),'success'); };
+  window.bgPreviewSound = (id) => { try { const stop = DP.playNotificationSound(); setTimeout(()=>stop&&stop(), 3000); } catch(_) {} };
+  window.bgSetRating = (qid, v) => { let d = {}; try { d = JSON.parse(sessionStorage.getItem('bg_driver_rating_draft')||'{}'); } catch(_) {} d[qid] = v; sessionStorage.setItem('bg_driver_rating_draft', JSON.stringify(d)); const c = document.getElementById('rate-stars-'+qid); if (c) c.innerHTML = [1,2,3,4,5].map(n => `<i class="fas fa-star ${n<=v?'star-filled':'star-empty'}" onclick="bgSetRating('${qid}',${n})" style="cursor:pointer;font-size:28px;padding:4px"></i>`).join(''); };
+  window.bgAddComment = () => { const ta = document.getElementById('bgRatingComment'); if (!ta) return; let d = {}; try { d = JSON.parse(sessionStorage.getItem('bg_driver_rating_draft')||'{}'); } catch(_) {} d.comment = ta.value; sessionStorage.setItem('bg_driver_rating_draft', JSON.stringify(d)); if (typeof showToast==='function') showToast(L('✅ تم حفظ التعليق','✅ Kommentar gespeichert'),'success'); };
+  window.bgSubmitRating = () => { let d = {}; try { d = JSON.parse(sessionStorage.getItem('bg_driver_rating_draft')||'{}'); } catch(_) {} if (!d.performance && !d.business && !d.support) { if (typeof showToast==='function') showToast(L('⚠️ اختر تقييماً واحداً على الأقل','⚠️ Bitte bewerten'),'warning'); return; } const final = { performance: d.performance||0, business: d.business||0, support: d.support||0, comment: (document.getElementById('bgRatingComment')?.value || d.comment || '').trim(), ts: Date.now() }; DP.set('rating', final); sessionStorage.removeItem('bg_driver_rating_draft'); if (typeof showToast==='function') showToast(L('✅ شكراً لتقييمك!','✅ Danke!'),'success'); if (typeof bgHaptic==='function') bgHaptic([20,30,20]); if (typeof setActivePage==='function') setActivePage('driver-profile'); };
+  window.bgShowPrivacy = (type) => { const title = type==='hr' ? L('سياسة خصوصية قسم الموارد البشرية','Datenschutz Personalbereich') : L('سياسة خصوصية التوظيف','Datenschutz Einstellung'); if (typeof bgCustomAlert==='function') bgCustomAlert(title + '\n\n' + L('نحن في BlinkGo نحترم خصوصيتك.','Bei BlinkGo respektieren wir Ihre Privatsphäre.'), { title }); };
+  window.BlinkGo.DriverSettings = {
+    pages: {
+      'driver-settings-map': renderMapAppPage,
+      'driver-settings-transport': renderTransportPage,
+      'driver-settings-theme': renderThemePage,
+      'driver-settings-sound': renderSoundPage,
+      'driver-settings-rate': renderRatePage,
+      'driver-settings-account': renderAccountPage
+    }
+  };
+})();
 
 /* ============================================================
 /* Analytics integration handled by services/index.js (late-binding on DOMContentLoaded) */
@@ -7651,6 +7939,12 @@ function _doRenderPageContent(){
       else if(state.page==='driver-history') c.innerHTML = renderDriverHistory();
       else if(state.page==='driver-earnings') c.innerHTML = renderDriverEarnings();
       else if(state.page==='driver-profile') c.innerHTML = renderDriverProfile();
+      else if(state.page==='driver-settings-map' && window.BlinkGo?.DriverSettings) c.innerHTML = window.BlinkGo.DriverSettings.pages['driver-settings-map']();
+      else if(state.page==='driver-settings-transport' && window.BlinkGo?.DriverSettings) c.innerHTML = window.BlinkGo.DriverSettings.pages['driver-settings-transport']();
+      else if(state.page==='driver-settings-theme' && window.BlinkGo?.DriverSettings) c.innerHTML = window.BlinkGo.DriverSettings.pages['driver-settings-theme']();
+      else if(state.page==='driver-settings-sound' && window.BlinkGo?.DriverSettings) c.innerHTML = window.BlinkGo.DriverSettings.pages['driver-settings-sound']();
+      else if(state.page==='driver-settings-rate' && window.BlinkGo?.DriverSettings) c.innerHTML = window.BlinkGo.DriverSettings.pages['driver-settings-rate']();
+      else if(state.page==='driver-settings-account' && window.BlinkGo?.DriverSettings) c.innerHTML = window.BlinkGo.DriverSettings.pages['driver-settings-account']();
       // Always poll while driver view is active so feed stays fresh
       startDriverOrderPolling();
       bindDriverEvents();
@@ -10331,8 +10625,8 @@ function renderDriverOrderDetail(o, isActive){
         <button onclick="bgDriverMapToggleGPS()" style="background:rgba(0,230,118,.15);border:1px solid rgba(0,230,118,.4);color:#00E676;padding:8px;border-radius:10px;font-size:11px;font-weight:700;cursor:pointer;touch-action:manipulation">
           <i class="fas fa-satellite-dish"></i> ${CURRENT_LANG==='ar'?'GPS':'GPS'}
         </button>
-        <a href="https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(o.address||'')}" target="_blank" rel="noopener" style="background:rgba(66,133,244,.15);border:1px solid rgba(66,133,244,.4);color:#4285F4;padding:8px;border-radius:10px;font-size:11px;font-weight:700;text-align:center;text-decoration:none;display:flex;align-items:center;justify-content:center;gap:4px">
-          <i class="fas fa-external-link-alt"></i> Maps
+        <a href="#" onclick="bgOpenNavigation(${o.addressLat||'null'},${o.addressLng||'null'},'${(o.address||'').replace(/'/g,"\\'")}');return false" style="background:rgba(66,133,244,.15);border:1px solid rgba(66,133,244,.4);color:#4285F4;padding:8px;border-radius:10px;font-size:11px;font-weight:700;text-align:center;text-decoration:none;display:flex;align-items:center;justify-content:center;gap:4px">
+          <i class="fas fa-external-link-alt"></i> ${CURRENT_LANG==='ar'?'ملاحة':'Navigation'}
         </a>
       </div>
     </div>` : '';
@@ -10800,10 +11094,17 @@ function renderDriverEarnings(){
 
 function renderDriverProfile(){
   const d = DRIVERS.find(x=>x.id===currentDriverId());
+  const isAr = CURRENT_LANG === 'ar';
+  const prefs = (window.BlinkGo?.DriverPrefs || { get: () => ({}) }).get();
+  const mapApp = (window.BlinkGo?.DriverPrefs?.MAP_APPS || {})[prefs.mapApp] || { name: { ar: 'خرائط جوجل', de: 'Google Maps' } };
+  const transport = (window.BlinkGo?.DriverPrefs?.TRANSPORT_MODES || {})[prefs.transport] || { name: { ar: 'دراجة هوائية', de: 'Fahrrad' } };
+  const sound = (window.BlinkGo?.DriverPrefs?.SOUND_MODES || {})[prefs.soundMode] || { name: { ar: 'طويلة', de: 'Lang' } };
+  const themeName = prefs.theme === 'dark' ? (isAr?'داكن':'Dunkel') : prefs.theme === 'light' ? (isAr?'فاتح':'Hell') : (isAr?'مظهر الجهاز':'Gerätethema');
+
   return `
     <div class="page-back-bar">
-      <button class="back-btn" onclick="setActivePage('driver-feed')"><i class="fas fa-arrow-${CURRENT_LANG==='ar'?'left':'right'}"></i></button>
-      <div class="section-title">👤 ${CURRENT_LANG==='ar'?'السائق':'Fahrer'}</div>
+      <button class="back-btn" onclick="setActivePage('driver-feed')"><i class="fas fa-arrow-${isAr?'left':'right'}"></i></button>
+      <div class="section-title">👤 ${isAr?'السائق':'Fahrer'}</div>
       <button class="back-btn" onclick="confirmLogout()" style="background:rgba(255,23,68,0.1);border-color:var(--danger);color:var(--danger)"><i class="fas fa-sign-out-alt"></i></button>
     </div>
     <div class="card" style="text-align:center">
@@ -10811,17 +11112,87 @@ function renderDriverProfile(){
       <div style="font-size:22px;font-weight:800">${_localized(d,'name')}</div>
       <div style="font-size:13px;color:var(--text-muted);margin-top:4px">${(typeof d.vehicle==='object')?(d.vehicle[CURRENT_LANG]||d.vehicle.de):d.vehicle} • ${d.plate}</div>
       <div style="margin-top:14px;display:inline-flex;gap:8px;padding:8px 16px;background:rgba(0,200,83,0.1);border-radius:50px;color:var(--secondary);font-weight:700">
-        ⭐ ${d.rating} • ${d.trips} Fahrten
+        ⭐ ${d.rating} • ${d.trips} ${isAr?'رحلة':'Fahrten'}
+      </div>
+      <div style="margin-top:14px;display:flex;justify-content:center;gap:10px">
+        <button class="btn ${state.driverOnline?'btn-secondary':'btn-primary'}" onclick="toggleDriverStatus()" style="width:auto;padding:10px 20px">
+          <i class="fas fa-power-off"></i> ${state.driverOnline?(isAr?'إيقاف الاستقبال':'Empfang deaktivieren'):(isAr?'تشغيل الاستقبال':'Empfang aktivieren')}
+        </button>
       </div>
     </div>
+
     <div class="card">
-      <div class="card-title" style="margin-bottom:16px"><i class="fas fa-cog"></i> Einstellungen</div>
+      <div class="card-title" style="margin-bottom:14px"><i class="fas fa-cog"></i> ${isAr?'إعدادات السائق':'Fahrer-Einstellungen'}</div>
       <div id="bgAISettingsStatus" style="margin-bottom:10px;font-size:12px;color:var(--text-muted)"></div>
-      <button class="btn btn-sm btn-secondary" id="bgAIReEnableBtn" onclick="bgAIEnable()" style="display:none;margin-bottom:10px"><i class="fas fa-robot"></i> KI / سامي مساعد تفعيل</button>
-      <button class="btn btn-secondary" onclick="toggleDriverStatus()" style="margin-bottom:10px"><i class="fas fa-power-off"></i> ${state.driverOnline?(CURRENT_LANG==='ar'?'إيقاف الاستقبال':'Empfang deaktivieren'):(CURRENT_LANG==='ar'?'تشغيل الاستقبال':'Empfang aktivieren')}</button>
-      <button class="btn btn-info" onclick="showToast(CURRENT_LANG==='ar'?'⚙️ الإعدادات':'⚙️ Einstellungen')"><i class="fas fa-bell"></i> ${CURRENT_LANG==='ar'?'الإشعارات':'Benachrichtigungen'}</button>
+
+      <!-- تطبيق الخرائط (Map App) -->
+      <div class="settings-row" onclick="setActivePage('driver-settings-map')">
+        <div class="settings-row-icon" style="color:var(--primary)"><i class="fas fa-map-marked-alt"></i></div>
+        <div class="settings-row-content">
+          <div class="settings-row-label">${isAr?'تطبيق الخرائط (GPS)':'Karten-App (GPS)'}</div>
+          <div class="settings-row-value">${mapApp.name.ar} <span style="opacity:.6">(${mapApp.name.de})</span></div>
+        </div>
+        <i class="fas fa-chevron-left settings-row-arrow"></i>
       </div>
-    </div>`;
+
+      <!-- وسيلة النقل (Transport) -->
+      <div class="settings-row" onclick="setActivePage('driver-settings-transport')">
+        <div class="settings-row-icon" style="color:var(--secondary)"><i class="fas fa-bicycle"></i></div>
+        <div class="settings-row-content">
+          <div class="settings-row-label">${isAr?'وسيلة النقل':'Transportmittel'}</div>
+          <div class="settings-row-value">${transport.name.ar} <span style="opacity:.6">(${transport.name.de})</span></div>
+        </div>
+        <i class="fas fa-chevron-left settings-row-arrow"></i>
+      </div>
+
+      <!-- العرض والغمات (Theme) -->
+      <div class="settings-row" onclick="setActivePage('driver-settings-theme')">
+        <div class="settings-row-icon"><i class="fas fa-palette"></i></div>
+        <div class="settings-row-content">
+          <div class="settings-row-label">${isAr?'العرض والغمات':'Anzeige & Design'}</div>
+          <div class="settings-row-value">${isAr?'المظهر: ':'Design: '}${themeName}</div>
+        </div>
+        <i class="fas fa-chevron-left settings-row-arrow"></i>
+      </div>
+
+      <!-- نغمة التنبيه (Sound) -->
+      <div class="settings-row" onclick="setActivePage('driver-settings-sound')">
+        <div class="settings-row-icon" style="color:#FFB300"><i class="fas fa-volume-up"></i></div>
+        <div class="settings-row-content">
+          <div class="settings-row-label">${isAr?'نغمة التنبيه للطلب':'Benachrichtigungston'}</div>
+          <div class="settings-row-value">${sound.name.ar} <span style="opacity:.6">(${sound.name.de})</span></div>
+        </div>
+        <i class="fas fa-chevron-left settings-row-arrow"></i>
+      </div>
+
+      <!-- تقييم (Rate) -->
+      <div class="settings-row" onclick="setActivePage('driver-settings-rate')">
+        <div class="settings-row-icon" style="color:#FF6B00"><i class="fas fa-star"></i></div>
+        <div class="settings-row-content">
+          <div class="settings-row-label">${isAr?'تقييم':'Bewertung'}</div>
+          <div class="settings-row-value">${isAr?'شاركنا رأيك':'Teilen Sie uns Ihre Meinung mit'}</div>
+        </div>
+        <i class="fas fa-chevron-left settings-row-arrow"></i>
+      </div>
+
+      <!-- KI / AI settings status -->
+      <button class="btn btn-sm btn-secondary" id="bgAIReEnableBtn" onclick="bgAIEnable()" style="display:none;margin-top:10px;width:100%"><i class="fas fa-robot"></i> KI / سامي مساعد تفعيل</button>
+
+      <!-- الحساب (Account) -->
+      <div class="settings-row" onclick="setActivePage('driver-settings-account')" style="margin-top:14px">
+        <div class="settings-row-icon"><i class="fas fa-user-circle"></i></div>
+        <div class="settings-row-content">
+          <div class="settings-row-label">${isAr?'الحساب':'Konto'}</div>
+          <div class="settings-row-value">${isAr?'تسجيل الخروج، الخصوصية':'Abmelden, Datenschutz'}</div>
+        </div>
+        <i class="fas fa-chevron-left settings-row-arrow"></i>
+      </div>
+    </div>
+
+    <div class="card" style="text-align:center;color:var(--text-muted);font-size:11px;padding:12px">
+      <i class="fas fa-shield-alt"></i> BlinkGo Pro v5.1 · ${isAr?'برمجة وتصميم فريق بليـنكجو':'BlinkGo Pro v5.1'}
+    </div>
+  `;
 }
 
 /* ============================================================
@@ -18071,5 +18442,107 @@ document.addEventListener('click', (e) => {
   } catch(_){}
 }, true);
 </script>
+
+<!-- =============================================================
+     DRIVER SETTINGS PAGES — Wolt-style UI
+============================================================= -->
+<style id="bg-driver-settings-css">
+/* === Settings pages base === */
+.page-content{padding:0 0 30px}
+.settings-header{padding:18px 18px 14px;border-bottom:1px solid var(--border);margin-bottom:8px}
+.settings-title{font-size:18px;font-weight:900;letter-spacing:-.3px}
+.settings-subtitle{font-size:12px;color:var(--text-muted);margin-top:4px;line-height:1.5}
+.settings-section{padding:8px 14px 14px}
+.settings-section-title{font-size:12px;font-weight:800;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;padding:10px 4px 6px}
+.settings-list{background:var(--surface);border:1px solid var(--border);border-radius:14px;overflow:hidden}
+.settings-row{display:flex;align-items:center;gap:12px;padding:14px;border-bottom:1px solid var(--border);cursor:pointer;transition:background .15s}
+.settings-row:last-child{border-bottom:none}
+.settings-row:active{background:rgba(0,0,0,0.04)}
+.settings-row-icon{width:28px;font-size:16px;display:flex;align-items:center;justify-content:center;color:var(--text-muted);flex-shrink:0}
+.settings-row-content{flex:1;min-width:0}
+.settings-row-label{font-size:15px;font-weight:700;color:var(--text)}
+.settings-row-value{font-size:12px;color:var(--text-muted);margin-top:2px;line-height:1.4}
+.settings-row-arrow{color:var(--text-muted);font-size:13px;transform:${'${CURRENT_LANG===\'ar\'?\'rotate(180deg)\':\'\'}'};flex-shrink:0}
+
+/* === Toggle switch (iOS style) === */
+.bg-switch{position:relative;display:inline-block;width:48px;height:28px;flex-shrink:0;cursor:pointer}
+.bg-switch input{opacity:0;width:0;height:0;position:absolute}
+.bg-switch-slider{position:absolute;inset:0;background:rgba(120,120,128,0.32);border-radius:99px;transition:.2s}
+.bg-switch-slider::before{content:'';position:absolute;height:24px;width:24px;left:2px;top:2px;background:#fff;border-radius:50%;box-shadow:0 2px 4px rgba(0,0,0,.2);transition:.2s}
+.bg-switch input:checked + .bg-switch-slider{background:var(--secondary)}
+.bg-switch input:checked + .bg-switch-slider::before{transform:translateX(20px)}
+
+/* === Map App Selector === */
+.map-app-row{display:flex;align-items:center;gap:14px;padding:14px;border-bottom:1px solid var(--border);cursor:pointer;transition:background .15s}
+.map-app-row:last-child{border-bottom:none}
+.map-app-row:active{background:rgba(0,0,0,0.04)}
+.map-app-row.selected{background:rgba(0,200,83,0.05)}
+.map-app-icon{width:44px;height:44px;border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0}
+.map-app-name{flex:1;font-size:15px;font-weight:700}
+
+/* === Transport Mode === */
+.transport-row{display:flex;align-items:center;gap:14px;padding:14px;border-bottom:1px solid var(--border);cursor:pointer;transition:background .15s}
+.transport-row:last-child{border-bottom:none}
+.transport-row:active{background:rgba(0,0,0,0.04)}
+.transport-row.selected{background:rgba(0,200,83,0.05)}
+.transport-icon{width:48px;height:48px;border-radius:14px;display:flex;align-items:center;justify-content:center;font-size:22px;flex-shrink:0}
+.transport-info{flex:1;min-width:0}
+.transport-name{font-size:15px;font-weight:800}
+.transport-sub{font-size:12px;color:var(--text-muted);margin-top:2px}
+
+/* === Theme === */
+.theme-row{display:flex;align-items:center;gap:14px;padding:14px;border-bottom:1px solid var(--border);cursor:pointer;transition:background .15s}
+.theme-row:last-child{border-bottom:none}
+.theme-row:active{background:rgba(0,0,0,0.04)}
+.theme-row.selected{background:rgba(0,200,83,0.05)}
+.theme-icon{width:32px;font-size:18px;color:var(--text-muted);display:flex;align-items:center;justify-content:center}
+.theme-row.selected .theme-icon{color:var(--secondary)}
+.theme-name{flex:1;font-size:15px;font-weight:700}
+
+/* === Sound === */
+.sound-row{display:flex;align-items:center;gap:12px;padding:14px;border-bottom:1px solid var(--border);cursor:pointer;transition:background .15s}
+.sound-row:last-child{border-bottom:none}
+.sound-row:active{background:rgba(0,0,0,0.04)}
+.sound-row.selected{background:rgba(0,200,83,0.05)}
+.sound-info{flex:1;min-width:0}
+.sound-name{font-size:15px;font-weight:800}
+.sound-desc{font-size:12px;color:var(--text-muted);margin-top:3px;line-height:1.4}
+.sound-play-btn{width:40px;height:40px;border-radius:50%;background:rgba(0,157,224,0.15);color:var(--primary);border:none;cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:14px;flex-shrink:0;transition:transform .15s}
+.sound-play-btn:active{transform:scale(0.92)}
+.sound-check{color:var(--secondary);font-size:18px;flex-shrink:0}
+
+/* === Rate === */
+.rate-question{padding:16px 14px;border-bottom:1px solid var(--border)}
+.rate-question:last-child{border-bottom:none}
+.rate-q-title{font-size:15px;font-weight:800}
+.rate-q-sub{font-size:12px;color:var(--text-muted);margin-top:4px;line-height:1.4}
+.rate-stars{margin-top:10px}
+.star-filled{color:#FFB300}
+.star-empty{color:rgba(255,255,255,0.2)}
+
+/* === Light theme overrides === */
+[data-bg-theme="light"] {
+  --bg: #f2f2f7;
+  --bg-elevated: #ffffff;
+  --surface: #ffffff;
+  --surface-elevated: #ffffff;
+  --text: #000000;
+  --text-muted: #6c6c70;
+  --border: rgba(60,60,67,0.12);
+}
+[data-bg-theme="light"] .star-empty{color:rgba(0,0,0,0.15)}
+[data-bg-theme="light"] .settings-row:active{background:rgba(0,0,0,0.04)}
+[data-bg-theme="light"] .map-app-row.selected,
+[data-bg-theme="light"] .transport-row.selected,
+[data-bg-theme="light"] .theme-row.selected,
+[data-bg-theme="light"] .sound-row.selected{background:rgba(0,200,83,0.08)}
+
+/* === No animations class === */
+.bg-no-animations *, .bg-no-animations *::before, .bg-no-animations *::after{
+  animation-duration:0s !important;
+  animation-delay:0s !important;
+  transition-duration:0s !important;
+}
+</style>
 </body>
 </html>
