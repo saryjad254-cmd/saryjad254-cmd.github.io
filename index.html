@@ -4081,6 +4081,55 @@ function bgCallPhone(phone){
 }
 window.bgCallPhone = bgCallPhone;
 
+// === PHASE 6: Browser geolocation watcher (customer-side) ===
+// Watches the browser's geolocation and stores it for map usage.
+window.__bgLastBrowserLocation = null;
+window.__bgBrowserLocWatchId = null;
+function bgStartBrowserLocation(){
+  if(!navigator.geolocation) return false;
+  if(window.__bgBrowserLocWatchId !== null) return true;  // already running
+  try {
+    // Try one-time fast fix first
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        const loc = { lat: pos.coords.latitude, lng: pos.coords.longitude, ts: Date.now() };
+        window.__bgLastBrowserLocation = loc;
+        try { localStorage.setItem('bg_user_location', JSON.stringify(loc)); } catch(_){}
+      },
+      () => { /* permission denied — that's fine */ },
+      { enableHighAccuracy: false, maximumAge: 60000, timeout: 8000 }
+    );
+    // Then start watching for updates
+    window.__bgBrowserLocWatchId = navigator.geolocation.watchPosition(
+      (pos) => {
+        const loc = { lat: pos.coords.latitude, lng: pos.coords.longitude, ts: Date.now() };
+        window.__bgLastBrowserLocation = loc;
+        try { localStorage.setItem('bg_user_location', JSON.stringify(loc)); } catch(_){}
+        // If we're on the track page, update the map immediately
+        try {
+          if(state.page === 'track' && state.trackingOrderId && typeof bgInitGoogleMap === 'function'){
+            bgInitGoogleMap(state.trackingOrderId, 'bgCustomerMap');
+          }
+        } catch(_){}
+      },
+      () => { /* ignore errors */ },
+      { enableHighAccuracy: true, maximumAge: 30000, timeout: 15000 }
+    );
+    return true;
+  } catch(e){
+    console.warn('[BlinkGo] Browser geolocation failed:', e?.message);
+    return false;
+  }
+}
+function bgStopBrowserLocation(){
+  if(window.__bgBrowserLocWatchId !== null && navigator.geolocation){
+    try { navigator.geolocation.clearWatch(window.__bgBrowserLocWatchId); } catch(_){}
+    window.__bgBrowserLocWatchId = null;
+  }
+}
+window.bgStartBrowserLocation = bgStartBrowserLocation;
+window.bgStopBrowserLocation = bgStopBrowserLocation;
+
 // === PHASE 3 FIX: Image compression for delivery photos ===
 async function bgCompressImage(file, maxWidth, quality){
   return new Promise((resolve, reject) => {
@@ -4287,6 +4336,8 @@ const bgOrderAPI = {
   // GET /orders — List orders with optional filters
   async getOrders(filter){
     if(!this.enabled) return [];
+    // === PHASE 5: Rate-limit protection ===
+    if(this._rateLimitedUntil && Date.now() < this._rateLimitedUntil) return [];
     try {
       const params = new URLSearchParams();
       if(filter?.status) params.set('status', filter.status);
@@ -4295,9 +4346,18 @@ const bgOrderAPI = {
       if(filter?.since) params.set('since', String(filter.since));
       const url = BG_ORDER_API_URL + '/orders' + (params.toString() ? '?' + params : '');
       const res = await fetch(url);
-      this.consecutiveErrors = 0;
-      if(!res.ok) return [];
+      if(!res.ok){
+        // Detect rate limit
+        if(res.status === 429) {
+          const backoff = Math.min(30000 * Math.pow(2, Math.min(this.consecutiveErrors, 4)), 300000);
+          this._rateLimitedUntil = Date.now() + backoff;
+          console.warn('[BlinkGo] Worker rate-limited, backing off', backoff/1000, 's');
+        }
+        this.consecutiveErrors++;
+        return [];
+      }
       const data = await res.json();
+      this.consecutiveErrors = 0;
       this.lastSyncAt = Date.now();
       // Visual indicator: hide syncing
       const indicator = document.getElementById('bgSyncIndicator');
@@ -4309,28 +4369,64 @@ const bgOrderAPI = {
     } catch(e){
       this.consecutiveErrors++;
       this.lastErrorAt = Date.now();
+      // Detect rate-limit error
+      if(e && e.message && e.message.includes('Too many subrequests')) {
+        const backoff = Math.min(30000 * Math.pow(2, Math.min(this.consecutiveErrors, 4)), 300000);
+        this._rateLimitedUntil = Date.now() + backoff;
+        console.warn('[BlinkGo] Worker rate-limited, backing off', backoff/1000, 's');
+      }
       return [];
     }
   },
 
-  // PATCH /orders/:id — Update order status / fields
+  // PATCH /orders/:id — Update order status / fields (Worker may not support PATCH, fallback to PUT/POST)
   async updateOrder(id, updates){
     if(!this.enabled) return null;
+    // Try PATCH first (proper REST)
+    let res = null;
     try {
-      const res = await fetch(BG_ORDER_API_URL + '/orders/' + encodeURIComponent(id), {
+      res = await fetch(BG_ORDER_API_URL + '/orders/' + encodeURIComponent(id), {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(updates),
       });
-      this.consecutiveErrors = 0;
-      if(!res.ok) return null;
-      const data = await res.json();
-      this.lastSyncAt = Date.now();
-      return data.order || null;
     } catch(e){
+      console.warn('[bgOrderAPI] PATCH failed, trying PUT/POST fallback:', e?.message);
+    }
+    // If PATCH failed (403/405), try POST (Worker overwrites same-id order)
+    if(!res || !res.ok){
+      try {
+        // First try to fetch the current order, merge updates, and POST
+        const current = await fetch(BG_ORDER_API_URL + '/orders').then(r=>r.json()).catch(()=>({orders:[]}));
+        const existing = (current.orders||[]).find(o => String(o.id) === String(id)) || { id };
+        const merged = { ...existing, ...updates };
+        res = await fetch(BG_ORDER_API_URL + '/orders', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(merged),
+        });
+        if(res.ok){
+          this.consecutiveErrors = 0;
+          this.lastSyncAt = Date.now();
+          const data = await res.json().catch(()=>({}));
+          return data.order || merged;
+        }
+      } catch(e){
+        console.warn('[bgOrderAPI] POST fallback failed:', e?.message);
+      }
+    }
+    if(!res || !res.ok) {
       this.consecutiveErrors++;
       this.lastErrorAt = Date.now();
       return null;
+    }
+    this.consecutiveErrors = 0;
+    this.lastSyncAt = Date.now();
+    try {
+      const data = await res.json();
+      return data.order || null;
+    } catch(_){
+      return { id, ...updates };
     }
   },
 
@@ -4465,6 +4561,11 @@ class OrdersRepository {
    */
   async findAll(filter = {}) {
     if (!this.enabled) return [];
+    // === PHASE 5: Rate-limit protection — back off if Worker is overloaded ===
+    if (this._rateLimitedUntil && Date.now() < this._rateLimitedUntil) {
+      // Skip this request — Worker still rate-limited
+      return [];
+    }
     try {
       const params = new URLSearchParams();
       if (filter.status) params.set('status', filter.status);
@@ -4479,7 +4580,20 @@ class OrdersRepository {
     } catch (err) {
       this.consecutiveErrors++;
       this.lastErrorAt = Date.now();
-      this.logger.warn('OrdersRepository', `findAll failed: ${err.message}`);
+      // Detect Worker rate limit ("Too many subrequests")
+      const isRateLimit = err && err.message && (
+        err.message.includes('Too many subrequests') ||
+        err.message.includes('429') ||
+        err.code === 'E012'
+      );
+      if (isRateLimit) {
+        // Back off exponentially: 30s, 60s, 120s, max 300s
+        const backoff = Math.min(30000 * Math.pow(2, Math.min(this.consecutiveErrors - 1, 4)), 300000);
+        this._rateLimitedUntil = Date.now() + backoff;
+        this.logger && this.logger.warn('OrdersRepository', `Rate-limited, backing off ${backoff/1000}s`);
+      } else {
+        this.logger && this.logger.warn('OrdersRepository', `findAll failed: ${err.message}`);
+      }
       return [];  // graceful degradation
     }
   }
@@ -6627,6 +6741,9 @@ function offlineLogin(role){
     if(role === 'driver'){
       try { startDriverOrderPolling(); } catch(_){}
     }
+
+    // 6.5. PHASE 6: Start browser geolocation for customer (and driver too)
+    try { bgStartBrowserLocation && bgStartBrowserLocation(); } catch(_){}
 
     // 7. Final toast
     showToast((L?'✅ تم الدخول (أوفلاين) كـ ':'✅ Offline-Anmeldung als ') + nameMap[role]);
@@ -9217,12 +9334,23 @@ function bgStartDriverLocationPolling(orderId){
       const order = res.orders?.find(o => String(o.id) === String(orderId));
       if(order && order.driverLat && order.driverLng){
         bgUpdateDriverMarker(order.driverLat, order.driverLng, order.driverName || (CURRENT_LANG==='ar'?'السائق':'Fahrer'));
-        // Get customer location
+        // === PHASE 6 FIX: Get customer location from order, browser, or fallback ===
+        // Priority: order.addressLat > bg_user_location > browser geolocation > order's customer location > Berlin
         const cust = (() => {
+          // 1. Order's delivery address
+          if(order.addressLat && order.addressLng) {
+            return [order.addressLat, order.addressLng];
+          }
+          // 2. Stored user location
           try {
             const stored = JSON.parse(localStorage.getItem('bg_user_location') || 'null');
             if(stored && stored.lat && stored.lng) return [stored.lat, stored.lng];
           } catch(_){}
+          // 3. Browser geolocation (async, but won't block)
+          if(navigator.geolocation && window.__bgLastBrowserLocation){
+            return [window.__bgLastBrowserLocation.lat, window.__bgLastBrowserLocation.lng];
+          }
+          // 4. Fallback (Berlin — only if everything else fails)
           return [52.5200, 13.4050];
         })();
         bgUpdateRoute(order.driverLat, order.driverLng, cust[0], cust[1]);
